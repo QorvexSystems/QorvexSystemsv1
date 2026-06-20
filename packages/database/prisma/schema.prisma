@@ -1,0 +1,754 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  INVITED
+  DISABLED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  INVITED
+  DISABLED
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  CASHIER
+  QORVEX_SUPER_ADMIN
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+enum InventoryMovementType {
+  INITIAL_STOCK
+  PURCHASE
+  INBOUND
+  OUTBOUND
+  ADJUSTMENT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  SALE
+  RETURN
+  DAMAGE
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  PARTIALLY_PAID
+  CANCELLED
+  VOIDED
+  CREDITED
+  VOID
+  PENDING_ECF
+  ACCEPTED
+  REJECTED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  CHECK
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ElectronicDocumentProvider {
+  MOCK
+  GAE
+  DGII
+  DGII_DIRECT
+}
+
+enum ElectronicDocumentStatus {
+  PENDING
+  PROCESSING
+  SIGNED
+  SENT
+  ACCEPTED
+  REJECTED
+  FAILED
+  CANCELLED
+}
+
+enum DocumentType {
+  RNC
+  CEDULA
+  PASSPORT
+  CONSUMER_FINAL
+  OTHER
+}
+
+enum InvoiceFiscalStatus {
+  NOT_APPLICABLE
+  PENDING_SEQUENCE
+  READY_TO_SEND
+  PENDING_SIGNATURE
+  SIGNED
+  SENT
+  ACCEPTED
+  REJECTED
+  FAILED
+  CANCELLED
+}
+
+enum InvoiceDocumentType {
+  CONSUMER_ELECTRONIC_32
+  FISCAL_CREDIT_ELECTRONIC_31
+  DEBIT_NOTE_ELECTRONIC_33
+  CREDIT_NOTE_ELECTRONIC_34
+}
+
+enum BarcodeType {
+  EAN13
+  UPC_A
+  CODE128
+  INTERNAL_CODE128
+  QR
+  UNKNOWN
+}
+
+enum ProductUnit {
+  UNIT
+  BOX
+  PACK
+  BAG
+  ROLL
+  METER
+  FOOT
+  POUND
+  GALLON
+  LITER
+  KILOGRAM
+  SERVICE
+}
+
+enum TaxCategory {
+  ITBIS_18
+  ITBIS_16
+  EXEMPT
+}
+
+enum CashRegisterStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum CashMovementType {
+  OPENING
+  SALE_PAYMENT
+  CASH_IN
+  CASH_OUT
+  REFUND
+  CLOSING
+  ADJUSTMENT
+}
+
+enum EmployeeLogAction {
+  OPEN_CASH_SESSION
+  CLOSE_CASH_SESSION
+  CREATE_SALE
+  CANCEL_SALE
+  ISSUE_INVOICE
+  CANCEL_INVOICE
+  APPLY_DISCOUNT
+  CHANGE_PRODUCT_PRICE
+  ADD_PRODUCT
+  UPDATE_PRODUCT
+  DELETE_PRODUCT
+  CHANGE_BARCODE
+  PRINT_RECEIPT
+  REPRINT_RECEIPT
+  CASH_IN
+  CASH_OUT
+  INVENTORY_ADJUSTMENT
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  TERMINATED
+}
+
+enum FiscalSequenceStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  EXHAUSTED
+}
+
+enum ImportType {
+  PRODUCTS
+  CATEGORIES
+  CUSTOMERS
+  INITIAL_INVENTORY
+  FISCAL_SEQUENCES
+  HISTORICAL_INVOICES
+  INVOICE_ITEMS
+  PAYMENTS
+}
+
+enum ImportStatus {
+  DRAFT
+  VALIDATING
+  READY
+  IMPORTED
+  FAILED
+  CANCELLED
+}
+
+model Tenant {
+  id                  String               @id @default(cuid())
+  name                String
+  commercialName      String?
+  legalName           String?
+  slug                String               @unique
+  rnc                 String?
+  email               String?
+  phone               String?
+  address             String?
+  status              TenantStatus         @default(ACTIVE)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  branding            CompanyBranding?
+  memberships         Membership[]
+  customers           Customer[]
+  categories          ProductCategory[]
+  products            Product[]
+  inventoryMovements  InventoryMovement[]
+  invoices            Invoice[]
+  payments            Payment[]
+  electronicDocuments ElectronicDocument[]
+  auditLogs           AuditLog[]
+  employeeProfiles    EmployeeProfile[]
+  cashRegisters       CashRegister[]
+  cashSessions        CashSession[]
+  cashMovements       CashMovement[]
+  employeeActivityLogs EmployeeActivityLog[]
+  fiscalSequences     FiscalSequence[]
+  importBatches       ImportBatch[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CompanyBranding {
+  id            String   @id @default(cuid())
+  tenantId      String   @unique
+  logoUrl       String?
+  primaryColor  String?
+  accentColor   String?
+  loginTitle    String?
+  loginSubtitle String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  phone        String?
+  passwordHash String?
+  status       UserStatus   @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  auditLogs    AuditLog[]
+  employeeProfiles EmployeeProfile[]
+  invoicesIssued Invoice[] @relation("InvoiceIssuedBy")
+  inventoryMovementsCreated InventoryMovement[] @relation("InventoryMovementCreatedBy")
+  payments Payment[]
+  cashSessionsOpened CashSession[] @relation("CashSessionOpenedBy")
+  cashSessionsClosed CashSession[] @relation("CashSessionClosedBy")
+  cashMovements CashMovement[]
+  employeeActivityLogs EmployeeActivityLog[]
+  importBatches ImportBatch[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Membership {
+  id        String           @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      Role
+  status    MembershipStatus @default(ACTIVE)
+  canUsePos Boolean @default(false)
+  canOpenCashSession Boolean @default(false)
+  canCloseCashSession Boolean @default(false)
+  canApplyDiscount Boolean @default(false)
+  canCancelInvoice Boolean @default(false)
+  canVoidInvoice Boolean @default(false)
+  canAdjustInventory Boolean @default(false)
+  canManageProducts Boolean @default(false)
+  canManageEmployees Boolean @default(false)
+  canViewReports Boolean @default(false)
+  canManageFiscalSequences Boolean @default(false)
+  canViewCashLogs Boolean @default(false)
+  canReprintReceipt Boolean @default(false)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, status])
+  @@index([userId])
+}
+
+model Customer {
+  id             String         @id @default(cuid())
+  tenantId       String
+  name           String
+  documentType   DocumentType
+  documentNumber String?
+  email          String?
+  phone          String?
+  address        String?
+  status         CustomerStatus @default(ACTIVE)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices       Invoice[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, documentNumber])
+  @@index([createdAt])
+}
+
+model ProductCategory {
+  id          String        @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  status      ProductStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products    Product[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([createdAt])
+}
+
+model Product {
+  id                 String              @id @default(cuid())
+  tenantId           String
+  categoryId         String?
+  name               String
+  sku                String?
+  barcode            String?
+  barcodeType        BarcodeType?
+  generatedBarcode   Boolean             @default(false)
+  barcodeLabelPrintedAt DateTime?
+  barcodeLabelPrintCount Int              @default(0)
+  barcodeLastScannedAt DateTime?
+  barcodeCreatedById String?
+  description        String?
+  imageUrl           String?
+  brand              String?
+  unit               ProductUnit          @default(UNIT)
+  price              Decimal             @db.Decimal(12, 2)
+  salePrice          Decimal             @default(0) @db.Decimal(12, 2)
+  cost               Decimal?            @db.Decimal(12, 2)
+  margin             Decimal?            @db.Decimal(8, 4)
+  taxCategory        TaxCategory          @default(ITBIS_18)
+  taxRate            Decimal             @default(0.18) @db.Decimal(5, 4)
+  trackInventory     Boolean             @default(true)
+  stock              Int                 @default(0)
+  minStock           Int                 @default(0)
+  status             ProductStatus       @default(ACTIVE)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category           ProductCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  inventoryMovements InventoryMovement[]
+  invoiceItems       InvoiceItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, sku])
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+  @@index([tenantId, stock])
+  @@index([createdAt])
+}
+
+model InventoryMovement {
+  id        String                @id @default(cuid())
+  tenantId  String
+  productId String
+  type      InventoryMovementType
+  quantity  Int
+  previousStock Int?
+  newStock  Int?
+  unitCost  Decimal?              @db.Decimal(12, 2)
+  reason    String?
+  reference String?
+  invoiceId String?
+  createdById String?
+  createdAt DateTime              @default(now())
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  invoice   Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdBy User?                 @relation("InventoryMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, type])
+  @@index([tenantId, createdAt])
+  @@index([productId])
+  @@index([invoiceId])
+  @@index([createdById])
+}
+
+model Invoice {
+  id                  String              @id @default(cuid())
+  tenantId            String
+  customerId          String?
+  documentType        InvoiceDocumentType @default(CONSUMER_ELECTRONIC_32)
+  invoiceNumber       String
+  ncf                 String?
+  eNcf                String?
+  status              InvoiceStatus       @default(DRAFT)
+  fiscalStatus        InvoiceFiscalStatus @default(NOT_APPLICABLE)
+  subtotal            Decimal             @default(0) @db.Decimal(12, 2)
+  taxTotal            Decimal             @default(0) @db.Decimal(12, 2)
+  discountTotal       Decimal             @default(0) @db.Decimal(12, 2)
+  total               Decimal             @default(0) @db.Decimal(12, 2)
+  paidAmount          Decimal             @default(0) @db.Decimal(12, 2)
+  amountReceived      Decimal             @default(0) @db.Decimal(12, 2)
+  changeAmount        Decimal             @default(0) @db.Decimal(12, 2)
+  balance             Decimal             @default(0) @db.Decimal(12, 2)
+  paymentMethod       PaymentMethod?
+  issuedById          String?
+  cashSessionId       String?
+  issuedAt            DateTime?
+  dueDate             DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  issuedBy            User?               @relation("InvoiceIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  cashSession         CashSession?        @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  items               InvoiceItem[]
+  payments            Payment[]
+  electronicDocument  ElectronicDocument?
+  inventoryMovements  InventoryMovement[]
+  cashMovements       CashMovement[]
+  employeeActivityLogs EmployeeActivityLog[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([issuedById])
+  @@index([cashSessionId])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  productId   String?
+  sku         String?
+  barcode     String?
+  description String
+  quantity    Decimal  @db.Decimal(12, 2)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  taxRate     Decimal  @db.Decimal(5, 4)
+  taxTotal    Decimal  @default(0) @db.Decimal(12, 2)
+  subtotal    Decimal  @db.Decimal(12, 2)
+  total       Decimal  @db.Decimal(12, 2)
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([productId])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  tenantId  String
+  invoiceId String
+  method    PaymentMethod
+  amount    Decimal       @db.Decimal(12, 2)
+  status    PaymentStatus @default(PENDING)
+  userId    String?
+  cashSessionId String?
+  paidAt    DateTime?
+  createdAt DateTime      @default(now())
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice   Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([invoiceId])
+  @@index([userId])
+  @@index([cashSessionId])
+}
+
+model ElectronicDocument {
+  id           String                   @id @default(cuid())
+  tenantId     String
+  invoiceId    String                   @unique
+  provider     ElectronicDocumentProvider
+  status       ElectronicDocumentStatus @default(PENDING)
+  xmlUrl       String?
+  pdfUrl       String?
+  trackId      String?
+  externalId   String?
+  errorMessage String?
+  requestPayload Json?
+  responsePayload Json?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  tenant       Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice      Invoice                  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+}
+
+model EmployeeProfile {
+  id                    String         @id @default(cuid())
+  tenantId              String
+  userId                String
+  employeeCode          String?
+  jobTitle              String?
+  hireDate              DateTime?
+  documentType          DocumentType?
+  documentNumber        String?
+  address               String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  notes                 String?
+  status                EmployeeStatus @default(ACTIVE)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  tenant                Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@unique([tenantId, employeeCode])
+  @@index([tenantId, status])
+  @@index([userId])
+}
+
+model CashRegister {
+  id           String             @id @default(cuid())
+  tenantId     String
+  name         String
+  location     String?
+  status       CashRegisterStatus @default(ACTIVE)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions     CashSession[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+model CashSession {
+  id             String            @id @default(cuid())
+  tenantId       String
+  cashRegisterId String
+  openedById     String
+  closedById     String?
+  status         CashSessionStatus @default(OPEN)
+  openingAmount  Decimal           @default(0) @db.Decimal(12, 2)
+  closingAmount  Decimal?          @db.Decimal(12, 2)
+  expectedAmount Decimal?          @db.Decimal(12, 2)
+  difference     Decimal?          @db.Decimal(12, 2)
+  openedAt       DateTime          @default(now())
+  closedAt       DateTime?
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cashRegister   CashRegister      @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+  openedBy       User              @relation("CashSessionOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  closedBy       User?             @relation("CashSessionClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  movements      CashMovement[]
+  invoices       Invoice[]
+  payments       Payment[]
+  employeeActivityLogs EmployeeActivityLog[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([openedById])
+  @@index([cashRegisterId])
+}
+
+model CashMovement {
+  id            String           @id @default(cuid())
+  tenantId      String
+  cashSessionId String
+  userId        String
+  type          CashMovementType
+  amount        Decimal          @db.Decimal(12, 2)
+  method        PaymentMethod?
+  reason        String?
+  reference     String?
+  invoiceId     String?
+  createdAt     DateTime         @default(now())
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cashSession   CashSession      @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  invoice       Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([cashSessionId])
+  @@index([userId])
+  @@index([invoiceId])
+  @@index([tenantId, createdAt])
+}
+
+model EmployeeActivityLog {
+  id            String            @id @default(cuid())
+  tenantId      String
+  userId        String
+  cashSessionId String?
+  action        EmployeeLogAction
+  entity        String
+  entityId      String?
+  amount        Decimal?          @db.Decimal(12, 2)
+  metadata      Json?
+  ip            String?
+  userAgent     String?
+  invoiceId     String?
+  createdAt     DateTime          @default(now())
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cashSession   CashSession?      @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  invoice       Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([cashSessionId])
+  @@index([action])
+  @@index([tenantId, createdAt])
+}
+
+model FiscalSequence {
+  id             String              @id @default(cuid())
+  tenantId       String
+  documentType   InvoiceDocumentType
+  prefix         String
+  startNumber    Int
+  endNumber      Int
+  nextNumber     Int
+  validUntil     DateTime?
+  status         FiscalSequenceStatus @default(ACTIVE)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, documentType, status])
+}
+
+model ImportBatch {
+  id            String       @id @default(cuid())
+  tenantId      String
+  type          ImportType
+  filename      String
+  status        ImportStatus @default(DRAFT)
+  totalRows     Int          @default(0)
+  validRows     Int          @default(0)
+  invalidRows   Int          @default(0)
+  importedRows  Int          @default(0)
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  confirmedAt   DateTime?
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy     User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  errors        ImportRowError[]
+
+  @@index([tenantId])
+  @@index([tenantId, type, status])
+  @@index([createdById])
+}
+
+model ImportRowError {
+  id            String      @id @default(cuid())
+  importBatchId String
+  rowNumber     Int
+  field         String?
+  message       String
+  rawData       Json?
+  importBatch   ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@index([importBatchId])
+  @@index([rowNumber])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}

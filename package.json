@@ -1,0 +1,24 @@
+{
+  "name": "qorvex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Qorvex Systems custom SaaS/ERP foundation.",
+  "packageManager": "pnpm@10.12.4",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @qorvex/api --filter @qorvex/web dev",
+    "dev:web": "pnpm --filter @qorvex/web dev",
+    "dev:api": "pnpm --filter @qorvex/api dev",
+    "build": "pnpm --filter @qorvex/api build && pnpm --filter @qorvex/web build",
+    "lint": "pnpm --filter @qorvex/database lint && pnpm --filter @qorvex/api lint && pnpm --filter @qorvex/web lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css,prisma}\"",
+    "db:generate": "pnpm --filter @qorvex/database generate",
+    "db:migrate": "pnpm --filter @qorvex/database migrate",
+    "db:migrate:deploy": "pnpm --filter @qorvex/database migrate:deploy",
+    "db:seed": "pnpm --filter @qorvex/database seed",
+    "db:studio": "pnpm --filter @qorvex/database studio"
+  },
+  "devDependencies": {
+    "pnpm": "10.12.4",
+    "prettier": "^3.5.3"
+  }
+}

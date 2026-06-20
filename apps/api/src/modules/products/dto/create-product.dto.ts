@@ -1,0 +1,95 @@
+import { BarcodeType, ProductStatus, ProductUnit, TaxCategory } from '@qorvex/database';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
+export class CreateProductDto {
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsString()
+  @MaxLength(160)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sku?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  barcode?: string;
+
+  @IsOptional()
+  @IsEnum(BarcodeType)
+  barcodeType?: BarcodeType;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  brand?: string;
+
+  @IsOptional()
+  @IsEnum(ProductUnit)
+  unit?: ProductUnit;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageUrl?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  cost?: number;
+
+  @IsOptional()
+  @IsEnum(TaxCategory)
+  taxCategory?: TaxCategory;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  taxRate?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  trackInventory?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  stock?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minStock?: number;
+
+  @IsOptional()
+  @IsEnum(ProductStatus)
+  status?: ProductStatus;
+}

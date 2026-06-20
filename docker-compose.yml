@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: qorvex-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-qorvex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qorvex}
+      POSTGRES_DB: ${POSTGRES_DB:-qorvex}
+    volumes:
+      - qorvex_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  qorvex_postgres_data:
