@@ -1,14 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+  "installCommand": "cd ../.. && corepack enable && corepack pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && corepack pnpm db:generate && corepack pnpm --filter @qorvex/database build && corepack pnpm --filter @qorvex/api build",
   "functions": {
     "api/index.ts": {
-      "includeFiles": [
-        "node_modules/@qorvex/database/**",
-        "../../packages/database/dist/**",
-        "../../packages/database/generated/client/**",
-        "../../packages/database/package.json"
-      ]
+      "includeFiles": "{node_modules/@qorvex/database/**,../../packages/database/dist/**,../../packages/database/generated/client/**,../../packages/database/package.json}"
     }
   },
   "rewrites": [

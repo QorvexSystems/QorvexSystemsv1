@@ -219,6 +219,8 @@ La API incluye:
 
 `@qorvex/database` debe permanecer en `dependencies` de `apps/api/package.json` porque la API usa valores runtime como `PrismaClient`, enums y `Prisma.Decimal`. No moverlo a `devDependencies`.
 
+`apps/api/vercel.json` tambien fija `installCommand` y `buildCommand` para que Vercel no dependa de comandos viejos guardados en el dashboard.
+
 ## 11. CORS
 
 La API lee:
