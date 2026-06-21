@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
-  "main": "./generated/client/index.js",
-  "types": "./generated/client/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./generated/client/index.d.ts",
-      "default": "./generated/client/index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
+    "build": "pnpm run generate && tsc -p tsconfig.json",
     "generate": "dotenv -e ../../.env -- prisma generate --schema prisma/schema.prisma",
     "migrate": "dotenv -e ../../.env -- prisma migrate dev --schema prisma/schema.prisma",
     "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy --schema prisma/schema.prisma",

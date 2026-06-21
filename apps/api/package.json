@@ -23,6 +23,11 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
+  "dependenciesMeta": {
+    "@qorvex/database": {
+      "injected": true
+    }
+  },
   "devDependencies": {
     "@nestjs/cli": "^11.0.7",
     "@types/express": "^5.0.3",

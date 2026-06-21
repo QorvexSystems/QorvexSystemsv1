@@ -5,14 +5,23 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+
+type HttpResponse = {
+  status: (code: number) => {
+    json: (body: unknown) => void;
+  };
+};
+
+type HttpRequest = {
+  url?: string;
+};
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const context = host.switchToHttp();
-    const response = context.getResponse<Response>();
-    const request = context.getRequest<Request>();
+    const response = context.getResponse<HttpResponse>();
+    const request = context.getRequest<HttpRequest>();
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
@@ -28,7 +37,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       message: message ?? 'Unexpected error',
-      path: request.url,
+      path: request.url ?? '',
       timestamp: new Date().toISOString(),
     });
   }

@@ -1,15 +1,13 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "builds": [
+  "framework": null,
+  "installCommand": "cd ../.. && corepack enable && corepack pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && corepack pnpm db:generate && corepack pnpm --filter @qorvex/database build && corepack pnpm --filter @qorvex/api build",
+  "rewrites": [
     {
-      "src": "api/index.ts",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/index.ts"
+      "source": "/(.*)",
+      "destination": "/api/index.ts"
     }
   ]
 }

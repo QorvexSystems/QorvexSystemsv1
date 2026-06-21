@@ -1,6 +1,6 @@
 # Despliegue temporal con Supabase PostgreSQL y Vercel
 
-Fecha de corte: 2026-06-20
+Fecha de corte: 2026-06-21
 
 Esta guia explica como ejecutar Qorvex Systems usando Supabase solo como PostgreSQL gestionado y Vercel como plataforma temporal para web/API. La logica de negocio debe seguir en NestJS. El frontend debe seguir hablando con la API NestJS. No se usa Supabase Auth, Supabase REST ni acceso directo a tablas desde el frontend en esta fase.
 
@@ -15,12 +15,20 @@ Usuario
 
 Responsabilidades:
 
-- `apps/web`: UI, login visual, dashboard, POS, facturas, caja y llamadas HTTP a NestJS.
-- `apps/api`: auth JWT propio, guards, permisos, caja, POS, facturacion, inventario y reglas de negocio.
+- `apps/web`: UI, login visual, dashboard, POS, formularios, facturas, caja y llamadas HTTP a NestJS mediante `NEXT_PUBLIC_API_URL`.
+- `apps/api`: base de datos, auth JWT propio, Prisma, guards, permisos, CORS, backend, caja, POS, facturacion, inventario y reglas de negocio.
 - `packages/database`: Prisma schema, migrations, seed y cliente generado.
 - Supabase: base PostgreSQL temporal.
 
 Supabase se usa solo como Postgres porque el sistema ya tiene auth, permisos, aislamiento por tenant y reglas de negocio en NestJS.
+
+Regla de mantenimiento:
+
+- `qorvex-api`: base de datos, Auth, Prisma, JWT, CORS, backend y logica de negocio.
+- `qorvex-web`: UI, login page, dashboard, POS, formularios y `NEXT_PUBLIC_API_URL`.
+- Cambios de codigo: push/merge a `main` redeploya los proyectos configurados en Vercel.
+- Cambios de variables: actualizar Vercel Settings > Environment Variables y redeploy manual.
+- Cambios de Prisma schema: crear migracion local, revisar SQL, aplicar con `db:migrate:deploy` en Supabase y redeployar API si hace falta.
 
 ## 2. Proyecto Supabase
 
@@ -195,8 +203,8 @@ NODE_ENV=production
 Name: qorvex-api
 Root Directory: apps/api
 Runtime: Node.js / Vercel Functions
-Install Command: cd ../.. && corepack pnpm install --frozen-lockfile
-Build Command: cd ../.. && corepack pnpm --filter @qorvex/database generate
+Install Command: cd ../.. && corepack enable && corepack pnpm install --frozen-lockfile
+Build Command: cd ../.. && corepack pnpm db:generate && corepack pnpm --filter @qorvex/database build && corepack pnpm --filter @qorvex/api build
 ```
 
 Variables:
@@ -213,8 +221,15 @@ NODE_ENV
 La API incluye:
 
 - `apps/api/api/index.ts`: entrypoint serverless.
-- `apps/api/vercel.json`: enruta todo hacia NestJS.
+- `apps/api/vercel.json`: enruta todo hacia NestJS con `rewrites`, usa `framework: null` y define comandos de install/build desde la raiz del monorepo.
 - `apps/api/src/bootstrap.ts`: bootstrap compartido local/serverless.
+- `@qorvex/database`: workspace package compilado a `packages/database/dist` antes de construir la API. Exporta el Prisma Client generado y los enums usados por NestJS.
+
+`@qorvex/database` debe permanecer en `dependencies` de `apps/api/package.json` porque la API usa valores runtime como `PrismaClient`, enums y `Prisma.Decimal`. No moverlo a `devDependencies`.
+
+`apps/api/package.json` marca `@qorvex/database` como `dependenciesMeta.injected=true`, y `pnpm-workspace.yaml` mantiene `injectWorkspacePackages=true`, `dedupeInjectedDeps=false` y `syncInjectedDepsAfterScripts=["build"]`. Esto evita que Vercel empaquete la Serverless Function con symlinks hacia `packages/database`.
+
+`apps/api/vercel.json` tambien fija `installCommand` y `buildCommand` para que Vercel no dependa de comandos viejos guardados en el dashboard.
 
 ## 11. CORS
 
