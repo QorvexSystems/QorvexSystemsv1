@@ -70,6 +70,8 @@ Use `.env.example` as the template. Do not commit `.env` or real secrets.
 
 The initial API uses `x-tenant-id` as a temporary development tenant context. This is deliberate and must be replaced by real authentication plus membership checks in the next phase.
 
+For the temporary Supabase PostgreSQL and Vercel deployment flow, see `docs/DEPLOYMENT_SUPABASE_VERCEL.md`.
+
 ## API Validation
 
 After running migrations and seed:
@@ -129,7 +131,7 @@ The schema includes `ElectronicDocument` with provider/status fields so future D
 
 ## Supabase
 
-Supabase is intentionally not integrated. It can be evaluated later for managed Postgres, Auth, or Storage, but business logic must remain in the backend API and the application must continue to work with standard PostgreSQL.
+Supabase is used only as an optional temporary managed PostgreSQL target for deployment. It does not replace NestJS, JWT auth, tenant guards, Prisma, or backend-owned business logic. Do not use Supabase Auth, Supabase REST, or direct frontend table access in this phase; follow `docs/DEPLOYMENT_SUPABASE_VERCEL.md`.
 
 ## Auth Strategy
 

@@ -26,6 +26,20 @@ import {
 } from '../generated/client';
 import * as bcrypt from 'bcryptjs';
 
+function assertSeedAllowed() {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PRODUCTION_SEED !== 'true') {
+    throw new Error(
+      [
+        'Refusing to run the development seed in production.',
+        'This seed deletes existing data before recreating the Qorvex/RIVNU demo dataset.',
+        'Set ALLOW_PRODUCTION_SEED=true only for an intentional staging/demo reseed.',
+      ].join(' '),
+    );
+  }
+}
+
+assertSeedAllowed();
+
 const prisma = new PrismaClient();
 
 const demoPassword = 'DemoPassword123!';

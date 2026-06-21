@@ -355,7 +355,11 @@ export type ImportBatch = {
   }>;
 };
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+if (!apiUrl) {
+  throw new Error('NEXT_PUBLIC_API_URL is required to connect the frontend with the Qorvex API.');
+}
 
 const apiMessageTranslations: Record<string, string> = {
   'Missing bearer token.': 'Falta el token de sesion.',
