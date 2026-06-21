@@ -43,15 +43,17 @@ export class AuthService {
     );
 
     const configuredExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '15m');
+    const tokenOptions = {
+      secret: this.config.get<string>('JWT_SECRET', 'change-me'),
+      expiresIn: this.parseExpiresInSeconds(configuredExpiresIn),
+    } as Parameters<JwtService['signAsync']>[1];
+
     const accessToken = await this.jwt.signAsync(
       {
         sub: user.id,
         email: user.email,
       },
-      {
-        secret: this.config.get<string>('JWT_SECRET', 'change-me'),
-        expiresIn: this.parseExpiresInSeconds(configuredExpiresIn),
-      },
+      tokenOptions,
     );
 
     return {

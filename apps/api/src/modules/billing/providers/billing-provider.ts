@@ -1,4 +1,4 @@
-import { ElectronicDocumentProvider, ElectronicDocumentStatus } from '@qorvex/database';
+import type { ElectronicDocumentProvider, ElectronicDocumentStatus } from '@qorvex/database';
 
 export type BillingSubmissionInput = {
   tenantId: string;
