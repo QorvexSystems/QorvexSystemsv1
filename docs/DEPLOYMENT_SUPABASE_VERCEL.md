@@ -1,0 +1,312 @@
+# Despliegue temporal con Supabase PostgreSQL y Vercel
+
+Fecha de corte: 2026-06-20
+
+Esta guia explica como ejecutar Qorvex Systems usando Supabase solo como PostgreSQL gestionado y Vercel como plataforma temporal para web/API. La logica de negocio debe seguir en NestJS. El frontend debe seguir hablando con la API NestJS. No se usa Supabase Auth, Supabase REST ni acceso directo a tablas desde el frontend en esta fase.
+
+## 1. Arquitectura temporal
+
+```text
+Usuario
+  -> Vercel Web: apps/web, Next.js
+  -> Vercel API: apps/api, NestJS como Vercel Function
+  -> Supabase PostgreSQL: Prisma usa DATABASE_URL/DIRECT_URL
+```
+
+Responsabilidades:
+
+- `apps/web`: UI, login visual, dashboard, POS, facturas, caja y llamadas HTTP a NestJS.
+- `apps/api`: auth JWT propio, guards, permisos, caja, POS, facturacion, inventario y reglas de negocio.
+- `packages/database`: Prisma schema, migrations, seed y cliente generado.
+- Supabase: base PostgreSQL temporal.
+
+Supabase se usa solo como Postgres porque el sistema ya tiene auth, permisos, aislamiento por tenant y reglas de negocio en NestJS.
+
+## 2. Proyecto Supabase
+
+Valores publicos/no secretos:
+
+```text
+Project Ref: ofiajrknxhtquctgrysr
+Project URL: https://ofiajrknxhtquctgrysr.supabase.co
+REST URL: https://ofiajrknxhtquctgrysr.supabase.co/rest/v1/
+JWKS URL: https://ofiajrknxhtquctgrysr.supabase.co/auth/v1/.well-known/jwks.json
+Database host directo: db.ofiajrknxhtquctgrysr.supabase.co
+Database: postgres
+Database user: postgres
+Pooler host: aws-1-us-east-2.pooler.supabase.com
+```
+
+No escribas la contrasena real en codigo, README, documentacion ni commits. Si la contrasena contiene `@`, en URLs PostgreSQL debe ir como `%40`.
+
+## 3. Variables requeridas para API
+
+Configurar en `.env`, `.env.local`, `.env.production.local` o en Vercel Environment Variables:
+
+```env
+DATABASE_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
+DIRECT_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
+JWT_SECRET="replace-with-qorvex-secret"
+JWT_EXPIRES_IN="15m"
+CORS_ORIGIN="http://localhost:3000,https://YOUR_FRONTEND_VERCEL_URL"
+NODE_ENV="production"
+```
+
+Opcionales para futuro, no usados para la logica principal actual:
+
+```env
+SUPABASE_URL="https://ofiajrknxhtquctgrysr.supabase.co"
+SUPABASE_SECRET_KEY="replace-with-secret-key"
+SUPABASE_JWKS_URL="https://ofiajrknxhtquctgrysr.supabase.co/auth/v1/.well-known/jwks.json"
+```
+
+Reglas:
+
+- `JWT_SECRET` debe ser propio de Qorvex, no el JWT secret de Supabase.
+- `SUPABASE_SECRET_KEY` nunca debe estar en frontend ni empezar con `NEXT_PUBLIC_`.
+- No usar `*` en `CORS_ORIGIN` en produccion.
+
+## 4. Variables requeridas para web
+
+```env
+NEXT_PUBLIC_API_URL="https://YOUR_API_VERCEL_URL"
+NODE_ENV="production"
+```
+
+No poner secretos ni variables `NEXT_PUBLIC_SUPABASE_*` en el frontend. El frontend no debe consultar tablas de Supabase ni usar Supabase REST como backend alterno; toda operacion de negocio debe pasar por `NEXT_PUBLIC_API_URL`.
+
+## 5. DATABASE_URL y DIRECT_URL
+
+`DATABASE_URL` usa el pooler transaction-mode y es la URL para runtime/serverless:
+
+```env
+DATABASE_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
+```
+
+`DIRECT_URL` se usa para migraciones Prisma:
+
+```env
+DIRECT_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
+```
+
+Resumen:
+
+| Variable | Uso | Puerto | PgBouncer |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | Runtime NestJS/Prisma, Vercel serverless | `6543` | Si |
+| `DIRECT_URL` | Prisma migrate/deploy/studio | `5432` | No |
+
+## 6. Prisma
+
+El datasource debe mantenerse asi:
+
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+```
+
+Comandos contra Supabase:
+
+```bash
+corepack pnpm db:generate
+corepack pnpm db:migrate:deploy
+```
+
+Opcional para inspeccion:
+
+```bash
+corepack pnpm db:studio
+```
+
+No ejecutes seed contra Supabase real/produccion salvo que sea una base staging/demo y entiendas que borra datos.
+
+## 7. Seed
+
+El seed de desarrollo borra tablas y recrea datos demo de Qorvex/Ferreteria RIVNU. Ahora esta protegido:
+
+```text
+NODE_ENV=production
+```
+
+bloquea el seed salvo que exista:
+
+```env
+ALLOW_PRODUCTION_SEED=true
+```
+
+Usalo solo para staging/demo controlado. No lo ejecutes automaticamente en Vercel.
+
+## 8. Desarrollo local con Docker Postgres
+
+El flujo local sigue siendo:
+
+```bash
+corepack pnpm install
+docker compose up -d
+corepack pnpm db:generate
+corepack pnpm db:migrate
+corepack pnpm db:seed
+corepack pnpm dev
+```
+
+Variables locales Docker:
+
+```env
+DATABASE_URL="postgresql://qorvex:qorvex@localhost:5432/qorvex?schema=public"
+DIRECT_URL="postgresql://qorvex:qorvex@localhost:5432/qorvex?schema=public"
+NEXT_PUBLIC_API_URL="http://localhost:4000"
+CORS_ORIGIN="http://localhost:3000"
+NODE_ENV="development"
+```
+
+## 9. Diferencias entre entornos
+
+| Entorno | DB | Migraciones | Seed | API |
+| --- | --- | --- | --- | --- |
+| Local Docker | Postgres local | `db:migrate` | Permitido | `pnpm dev:api` |
+| Supabase temporal | Supabase Postgres | `db:migrate:deploy` | No recomendado | Local o Vercel |
+| Vercel | Supabase Postgres | Ejecutar antes/deploy controlado | No automatico | Vercel Function |
+
+## 10. Vercel monorepo
+
+### Proyecto web
+
+```text
+Name: qorvex-web
+Root Directory: apps/web
+Framework: Next.js
+Install Command: cd ../.. && corepack pnpm install --frozen-lockfile
+Build Command: corepack pnpm build
+```
+
+Variables:
+
+```text
+NEXT_PUBLIC_API_URL=https://YOUR_API_VERCEL_URL
+NODE_ENV=production
+```
+
+### Proyecto API
+
+```text
+Name: qorvex-api
+Root Directory: apps/api
+Runtime: Node.js / Vercel Functions
+Install Command: cd ../.. && corepack pnpm install --frozen-lockfile
+Build Command: cd ../.. && corepack pnpm --filter @qorvex/database generate
+```
+
+Variables:
+
+```text
+DATABASE_URL
+DIRECT_URL
+JWT_SECRET
+JWT_EXPIRES_IN
+CORS_ORIGIN
+NODE_ENV
+```
+
+La API incluye:
+
+- `apps/api/api/index.ts`: entrypoint serverless.
+- `apps/api/vercel.json`: enruta todo hacia NestJS.
+- `apps/api/src/bootstrap.ts`: bootstrap compartido local/serverless.
+
+## 11. CORS
+
+La API lee:
+
+```env
+CORS_ORIGIN="http://localhost:3000,https://YOUR_FRONTEND_VERCEL_URL"
+```
+
+Soporta multiples origins separados por coma. Headers permitidos:
+
+- `Authorization`
+- `x-tenant-id`
+- `Content-Type`
+
+En produccion se bloquea `*`.
+
+## 12. Pruebas basicas
+
+Health:
+
+```bash
+curl https://YOUR_API_VERCEL_URL/health
+```
+
+Login:
+
+```bash
+curl -X POST https://YOUR_API_VERCEL_URL/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"admin@rivnu.local\",\"password\":\"DemoPassword123!\"}"
+```
+
+Dashboard:
+
+```bash
+curl https://YOUR_API_VERCEL_URL/dashboard/summary \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "x-tenant-id: YOUR_TENANT_ID"
+```
+
+Productos:
+
+```bash
+curl https://YOUR_API_VERCEL_URL/products \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "x-tenant-id: YOUR_TENANT_ID"
+```
+
+Caja actual:
+
+```bash
+curl https://YOUR_API_VERCEL_URL/cash/sessions/current \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "x-tenant-id: YOUR_TENANT_ID"
+```
+
+POS preview:
+
+```bash
+curl -X POST https://YOUR_API_VERCEL_URL/pos/sales/preview \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "x-tenant-id: YOUR_TENANT_ID" \
+  -d "{\"paymentMethod\":\"CASH\",\"items\":[{\"productId\":\"PRODUCT_ID\",\"quantity\":1}]}"
+```
+
+## 13. Validaciones recomendadas
+
+```bash
+corepack pnpm db:generate
+corepack pnpm db:migrate:deploy
+corepack pnpm lint
+corepack pnpm build
+```
+
+Para local con Docker usar `db:migrate` en vez de `db:migrate:deploy` cuando estes creando migraciones nuevas.
+
+## 14. Riesgos conocidos
+
+- Vercel serverless puede tener cold starts.
+- Prisma en serverless requiere pooler y `DATABASE_URL` con `pgbouncer=true`.
+- Si se usa una sola base Supabase para demo y pruebas, el seed puede borrar datos si se fuerza.
+- No hay Supabase Auth en esta fase; el auth sigue siendo JWT propio.
+- No hay Supabase Storage para imagenes; `Product.imageUrl` sigue guardando URL/ruta.
+- No usar Supabase REST para saltarse permisos del backend.
+
+## 15. Plan futuro
+
+- Evaluar infraestructura propia/privada para produccion definitiva.
+- Agregar refresh tokens y recuperacion de contrasena.
+- Agregar almacenamiento real de imagenes si se necesita.
+- Evaluar Supabase Storage solo si conviene.
+- Mantener la logica de negocio en NestJS.
+- Implementar DGII/e-CF real antes de operar fiscalmente en produccion.
