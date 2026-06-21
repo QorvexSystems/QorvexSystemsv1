@@ -1,0 +1,49 @@
+import { InvoiceDocumentType, PaymentMethod } from '@qorvex/database';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+export class PosSaleItemDto {
+  @IsString()
+  productId: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  quantity: number;
+}
+
+export class CompleteSaleDto {
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsEnum(InvoiceDocumentType)
+  documentType?: InvoiceDocumentType;
+
+  @IsEnum(PaymentMethod)
+  paymentMethod: PaymentMethod;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amountReceived?: number;
+
+  @IsOptional()
+  @IsString()
+  cashSessionId?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PosSaleItemDto)
+  items: PosSaleItemDto[];
+}
