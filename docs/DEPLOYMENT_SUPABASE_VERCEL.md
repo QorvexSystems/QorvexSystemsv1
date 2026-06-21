@@ -195,8 +195,8 @@ NODE_ENV=production
 Name: qorvex-api
 Root Directory: apps/api
 Runtime: Node.js / Vercel Functions
-Install Command: cd ../.. && corepack pnpm install --frozen-lockfile
-Build Command: cd ../.. && corepack pnpm --filter @qorvex/database generate
+Install Command: cd ../.. && corepack enable && corepack pnpm install --frozen-lockfile
+Build Command: cd ../.. && corepack pnpm db:generate && corepack pnpm --filter @qorvex/database build && corepack pnpm --filter @qorvex/api build
 ```
 
 Variables:
@@ -213,8 +213,11 @@ NODE_ENV
 La API incluye:
 
 - `apps/api/api/index.ts`: entrypoint serverless.
-- `apps/api/vercel.json`: enruta todo hacia NestJS.
+- `apps/api/vercel.json`: enruta todo hacia NestJS con `rewrites` y fuerza `includeFiles` para el workspace package `@qorvex/database`.
 - `apps/api/src/bootstrap.ts`: bootstrap compartido local/serverless.
+- `@qorvex/database`: workspace package compilado a `packages/database/dist` antes de construir la API. Exporta el Prisma Client generado y los enums usados por NestJS.
+
+`@qorvex/database` debe permanecer en `dependencies` de `apps/api/package.json` porque la API usa valores runtime como `PrismaClient`, enums y `Prisma.Decimal`. No moverlo a `devDependencies`.
 
 ## 11. CORS
 

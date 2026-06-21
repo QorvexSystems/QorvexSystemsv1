@@ -1,4 +1,4 @@
-import { MembershipStatus, Role, UserStatus } from '@qorvex/database';
+import type { MembershipStatus, Role, UserStatus } from '@qorvex/database';
 
 export type AuthenticatedMembership = {
   id: string;
