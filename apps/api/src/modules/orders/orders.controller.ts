@@ -4,7 +4,11 @@ import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TenantMembershipGuard } from '../../common/guards/tenant-membership.guard';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
-import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
+import {
+  CancelSalesOrderDto,
+  ClaimSalesOrderDto,
+  CreateSalesOrderDto,
+} from './dto/create-sales-order.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -57,12 +61,32 @@ export class OrdersController {
     return this.ordersService.create(tenantId, user, dto);
   }
 
+  @Post(':id/claim')
+  claim(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: ClaimSalesOrderDto,
+  ) {
+    return this.ordersService.claim(tenantId, user, id, dto);
+  }
+
+  @Post(':id/release')
+  release(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.release(tenantId, user, id);
+  }
+
   @Post(':id/cancel')
   cancel(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
+    @Body() dto: CancelSalesOrderDto,
   ) {
-    return this.ordersService.cancel(tenantId, user, id);
+    return this.ordersService.cancel(tenantId, user, id, dto);
   }
 }

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import {
   closeCashSession,
   completePosSale,
+  claimSalesOrder,
   getCashRegisters,
   getCashSessions,
   getCurrentCashSession,
@@ -20,6 +21,7 @@ import {
   getPosProductByBarcode,
   getSalesOrders,
   openCashSession,
+  releaseSalesOrder,
   searchPosProducts,
   type Invoice,
   type Product,
@@ -33,7 +35,7 @@ import { BarcodeInput } from './pos/barcode-input';
 import { PosCart } from './pos/pos-cart';
 import { PosPaymentPanel } from './pos/pos-payment-panel';
 import { PosProductGrid } from './pos/pos-product-grid';
-import { canAddProduct, getProductPrice, uniqueValues } from './pos/pos-utils';
+import { canAddProduct, getAvailableStock, getProductPrice, uniqueValues } from './pos/pos-utils';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
 
@@ -100,8 +102,8 @@ export function PosView() {
     enabled: Boolean(session && currentSessionQuery.data && canCreateDirectSale),
   });
   const pendingOrdersQuery = useQuery({
-    queryKey: ['sales-orders', session?.tenantId, 'SENT_TO_CASHIER', 'pos'],
-    queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'SENT_TO_CASHIER'),
+    queryKey: ['sales-orders', session?.tenantId, 'OPEN', 'pos'],
+    queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'OPEN'),
     enabled: Boolean(session && currentSessionQuery.data),
   });
 
@@ -132,9 +134,15 @@ export function PosView() {
   }, [scannerEnabled]);
 
   const totals = useMemo(() => {
-    const subtotal = cart.reduce((sum, item) => sum + getProductPrice(item.product) * item.quantity, 0);
+    const subtotal = cart.reduce(
+      (sum, item) => sum + (item.subtotal ?? getProductPrice(item.product) * item.quantity),
+      0,
+    );
     const tax = cart.reduce(
-      (sum, item) => sum + getProductPrice(item.product) * item.quantity * Number(item.product.taxRate),
+      (sum, item) =>
+        sum +
+        (item.taxTotal ??
+          getProductPrice(item.product) * item.quantity * Number(item.product.taxRate)),
       0,
     );
     const total = subtotal + tax;
@@ -176,6 +184,15 @@ export function PosView() {
   );
   const selectedRegisterOccupied =
     Boolean(selectedOpenSession) && selectedOpenSession?.openedBy?.id !== session?.user.id;
+
+  function handleLoadOrder(order: SalesOrder) {
+    if (loadedOrder && loadedOrder.id !== order.id) {
+      setMessage('Libera o cobra la orden actual antes de tomar otra.');
+      return;
+    }
+
+    claimOrderMutation.mutate(order);
+  }
 
   const openSessionMutation = useMutation({
     mutationFn: () => {
@@ -289,6 +306,48 @@ export function PosView() {
     },
   });
 
+  const claimOrderMutation = useMutation({
+    mutationFn: (order: SalesOrder) => {
+      if (!session || !currentCashSession) {
+        throw new Error('Debes abrir caja antes de tomar una orden.');
+      }
+
+      return claimSalesOrder(session.tenantId, session.accessToken, order.id, {
+        cashSessionId: currentCashSession.id,
+      });
+    },
+    onSuccess: async (order) => {
+      loadClaimedSalesOrder(order);
+      await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
+      toast.success('Orden tomada en caja', { description: order.orderNumber });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'No se pudo tomar la orden.');
+    },
+  });
+
+  const releaseOrderMutation = useMutation({
+    mutationFn: (orderId: string) => {
+      if (!session) {
+        throw new Error('Sesion requerida.');
+      }
+
+      return releaseSalesOrder(session.tenantId, session.accessToken, orderId);
+    },
+    onSuccess: async (order) => {
+      if (loadedOrder?.id === order.id) {
+        setLoadedOrder(null);
+        setCart([]);
+        setCustomerId('');
+      }
+      await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
+      toast.success('Orden liberada', { description: order.orderNumber });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'No se pudo liberar la orden.');
+    },
+  });
+
   if (!session) {
     return <SessionRequired session={session} />;
   }
@@ -344,8 +403,9 @@ export function PosView() {
             return item;
           }
 
+          const availableStock = getAvailableStock(item.product);
           const nextQuantity = item.product.trackInventory
-            ? Math.min(quantity, item.product.stock)
+            ? Math.min(quantity, availableStock)
             : quantity;
 
           return { ...item, quantity: nextQuantity };
@@ -355,26 +415,39 @@ export function PosView() {
   }
 
   function clearCart() {
-    if (!canCreateDirectSale && loadedOrder) {
-      setMessage('El cajero no puede limpiar una orden enviada a caja. Carga otra orden si necesitas cambiarla.');
+    if (loadedOrder) {
+      releaseOrderMutation.mutate(loadedOrder.id);
       return;
     }
 
-    setLoadedOrder(null);
     setCart([]);
   }
 
   function unlinkLoadedOrderIfNeeded() {
     if (loadedOrder) {
+      releaseOrderMutation.mutate(loadedOrder.id);
       setLoadedOrder(null);
       setMessage('Orden desvinculada por edicion manual. Esta venta se cobrara como venta directa.');
     }
   }
 
-  function loadSalesOrder(order: SalesOrder) {
-    const items = order.items
-      .map((item) => (item.product ? { product: item.product, quantity: Number(item.quantity) } : null))
-      .filter((item): item is CartItem => Boolean(item));
+  function loadClaimedSalesOrder(order: SalesOrder) {
+    const items: CartItem[] = [];
+    for (const item of order.items) {
+      if (!item.product) {
+        continue;
+      }
+
+      items.push({
+        product: item.product,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        reservedQuantity: item.reservedQuantity,
+        subtotal: Number(item.subtotal),
+        taxTotal: Number(item.taxTotal),
+        total: Number(item.total),
+      });
+    }
 
     if (items.length !== order.items.length) {
       toast.error('La orden tiene productos no disponibles. Revisa la orden antes de cobrar.');
@@ -507,7 +580,9 @@ export function PosView() {
               orders={pendingOrdersQuery.data ?? []}
               loading={pendingOrdersQuery.isLoading}
               loadedOrderId={loadedOrder?.id}
-              onLoad={loadSalesOrder}
+              currentUserId={session.user.id}
+              claimingId={claimOrderMutation.variables?.id}
+              onLoad={handleLoadOrder}
             />
             {canCreateDirectSale ? (
               <>
@@ -589,8 +664,17 @@ export function PosView() {
 
           <div className="space-y-3 xl:sticky xl:top-24">
             {loadedOrder ? (
-              <div className="rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05]">
-                Cobrando orden {loadedOrder.orderNumber}. Si editas el carrito, se cobrara como venta directa.
+              <div className="flex flex-col gap-2 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05] sm:flex-row sm:items-center sm:justify-between">
+                <span>Cobrando orden {loadedOrder.orderNumber} con precios congelados.</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => releaseOrderMutation.mutate(loadedOrder.id)}
+                  disabled={releaseOrderMutation.isPending || completeSaleMutation.isPending}
+                >
+                  Liberar orden
+                </Button>
               </div>
             ) : null}
             <PosCart
@@ -644,13 +728,34 @@ function SalesOrdersQueuePanel({
   orders,
   loading,
   loadedOrderId,
+  currentUserId,
+  claimingId,
   onLoad,
 }: {
   orders: SalesOrder[];
   loading: boolean;
   loadedOrderId?: string;
+  currentUserId: string;
+  claimingId?: string;
   onLoad: (order: SalesOrder) => void;
 }) {
+  const [queueSearch, setQueueSearch] = useState('');
+  const normalizedSearch = queueSearch.trim().toLowerCase();
+  const visibleOrders = normalizedSearch
+    ? orders.filter((order) =>
+        [
+          order.orderNumber,
+          order.customer?.name,
+          order.createdBy.name,
+          order.claimedBy?.name,
+          order.invoice?.invoiceNumber,
+          String(order.total),
+        ]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(normalizedSearch)),
+      )
+    : orders;
+
   return (
     <Card className="border-zinc-200">
       <CardHeader className="pb-3">
@@ -663,30 +768,60 @@ function SalesOrdersQueuePanel({
         </div>
       </CardHeader>
       <CardContent>
+        <div className="mb-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={queueSearch}
+              onChange={(event) => setQueueSearch(event.target.value)}
+              className="bg-white pl-9"
+              placeholder="Buscar por orden, cliente, ordenanza o monto"
+            />
+          </div>
+        </div>
         {loading ? (
           <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">Cargando ordenes...</p>
-        ) : orders.length ? (
+        ) : visibleOrders.length ? (
           <div className="grid gap-2 lg:grid-cols-2">
-            {orders.map((order) => (
+            {visibleOrders.map((order) => (
               <div key={order.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
                       <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
+                      <Badge variant={getWaitingVariant(order)}>{getWaitingMinutes(order)} min</Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {order.customer?.name ?? 'Consumidor final'} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">Creada por {order.createdBy.name}</p>
+                    {order.claimedBy ? (
+                      <p className="mt-1 text-xs text-warning">
+                        Tomada por {order.claimedBy.name}
+                        {order.claimedCashSession?.cashRegister.name
+                          ? ` en ${order.claimedCashSession.cashRegister.name}`
+                          : ''}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="shrink-0 text-sm font-bold">{formatCurrency(Number(order.total))}</p>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">{order.items.length} producto(s)</span>
-                  <Button type="button" size="sm" onClick={() => onLoad(order)} disabled={loadedOrderId === order.id}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => onLoad(order)}
+                    disabled={
+                      loadedOrderId === order.id ||
+                      claimingId === order.id ||
+                      (Boolean(loadedOrderId) && loadedOrderId !== order.id) ||
+                      (order.status === 'IN_CASHIER' && order.claimedBy?.id !== currentUserId)
+                    }
+                  >
                     <ClipboardCheck className="h-4 w-4" />
-                    {loadedOrderId === order.id ? 'Cargada' : 'Cargar'}
+                    {loadedOrderId === order.id ? 'Cargada' : order.status === 'IN_CASHIER' ? 'Tomada' : 'Tomar'}
                   </Button>
                 </div>
               </div>
@@ -695,7 +830,9 @@ function SalesOrdersQueuePanel({
         ) : (
           <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
             <ClipboardCheck className="mx-auto h-6 w-6 text-muted-foreground" />
-            <p className="mt-2 text-sm text-muted-foreground">No hay ordenes pendientes de cobro.</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {orders.length ? 'No hay ordenes que coincidan con la busqueda.' : 'No hay ordenes pendientes de cobro.'}
+            </p>
           </div>
         )}
       </CardContent>
@@ -881,4 +1018,23 @@ function CloseCashPanel({
       {!canCloseCashSession ? <p className="mt-2 text-xs text-danger">Sin permiso para cerrar caja.</p> : null}
     </form>
   );
+}
+
+function getWaitingMinutes(order: SalesOrder) {
+  const startedAt = new Date(order.sentToCashierAt ?? order.createdAt).getTime();
+  return Math.max(Math.floor((Date.now() - startedAt) / 60000), 0);
+}
+
+function getWaitingVariant(order: SalesOrder) {
+  const minutes = getWaitingMinutes(order);
+
+  if (minutes >= 30) {
+    return 'danger' as const;
+  }
+
+  if (minutes >= 10) {
+    return 'warning' as const;
+  }
+
+  return 'outline' as const;
 }

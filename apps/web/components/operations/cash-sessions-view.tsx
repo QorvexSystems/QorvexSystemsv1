@@ -357,6 +357,7 @@ export function CashSessionsView() {
 
 function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>> }) {
   const movements = cashSession.movements ?? [];
+  const salesOrders = cashSession.claimedSalesOrders ?? [];
   const summary = getCashSessionSummary(cashSession);
 
   return (
@@ -366,6 +367,7 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
         <ReportMetric label="Ventas en efectivo" value={formatCurrency(summary.sales)} />
         <ReportMetric label="Entradas manuales" value={formatCurrency(summary.cashIn)} />
         <ReportMetric label="Salidas y devoluciones" value={formatCurrency(summary.cashOut + summary.refunds)} />
+        <ReportMetric label="Ordenes cobradas" value={String(salesOrders.filter((order) => order.status === 'COMPLETED').length)} />
         <ReportMetric label="Ajustes" value={formatCurrency(summary.adjustments)} />
         <ReportMetric label="Esperado" value={formatCurrency(Number(cashSession.expectedAmount ?? summary.expected))} />
         <ReportMetric label="Contado" value={cashSession.closingAmount ? formatCurrency(Number(cashSession.closingAmount)) : '-'} />
@@ -374,6 +376,43 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
           value={cashSession.difference ? formatCurrency(Number(cashSession.difference)) : '-'}
           tone={Number(cashSession.difference ?? 0) === 0 ? 'neutral' : 'warning'}
         />
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-border bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-zinc-50 text-left">
+              <th className="px-3 py-2">Orden</th>
+              <th className="px-3 py-2">Cliente</th>
+              <th className="px-3 py-2">Estado</th>
+              <th className="px-3 py-2">Ordenanza</th>
+              <th className="px-3 py-2">Factura</th>
+              <th className="px-3 py-2 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {salesOrders.length ? (
+              salesOrders.map((order) => (
+                <tr key={order.id} className="border-b border-border last:border-b-0">
+                  <td className="px-3 py-2 font-medium">{order.orderNumber}</td>
+                  <td className="px-3 py-2">{order.customer?.name ?? 'Consumidor final'}</td>
+                  <td className="px-3 py-2">
+                    <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
+                  </td>
+                  <td className="px-3 py-2">{order.createdBy.name}</td>
+                  <td className="px-3 py-2">{order.invoice?.invoiceNumber ?? '-'}</td>
+                  <td className="px-3 py-2 text-right font-medium">{formatCurrency(Number(order.total))}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} className="px-3 py-4 text-center text-muted-foreground">
+                  Esta sesion no tiene ordenes tomadas en caja.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border bg-white">

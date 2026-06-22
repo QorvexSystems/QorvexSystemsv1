@@ -95,9 +95,13 @@ enum PaymentStatus {
 }
 
 enum SalesOrderStatus {
+  DRAFT
+  CREATED
   SENT_TO_CASHIER
+  IN_CASHIER
   COMPLETED
   CANCELLED
+  EXPIRED
 }
 
 enum ElectronicDocumentProvider {
@@ -202,8 +206,11 @@ enum EmployeeLogAction {
   CLOSE_CASH_SESSION
   CREATE_SALES_ORDER
   SEND_SALES_ORDER_TO_CASHIER
+  CLAIM_SALES_ORDER
+  RELEASE_SALES_ORDER
   COMPLETE_SALES_ORDER
   CANCEL_SALES_ORDER
+  EXPIRE_SALES_ORDER
   CREATE_SALE
   CANCEL_SALE
   ISSUE_INVOICE
@@ -321,6 +328,7 @@ model User {
   payments Payment[]
   salesOrdersCreated SalesOrder[] @relation("SalesOrderCreatedBy")
   salesOrdersCompleted SalesOrder[] @relation("SalesOrderCompletedBy")
+  salesOrdersClaimed SalesOrder[] @relation("SalesOrderClaimedBy")
   cashSessionsOpened CashSession[] @relation("CashSessionOpenedBy")
   cashSessionsClosed CashSession[] @relation("CashSessionClosedBy")
   cashMovements CashMovement[]
@@ -424,6 +432,7 @@ model Product {
   taxRate            Decimal             @default(0.18) @db.Decimal(5, 4)
   trackInventory     Boolean             @default(true)
   stock              Int                 @default(0)
+  reservedStock      Int                 @default(0)
   minStock           Int                 @default(0)
   status             ProductStatus       @default(ACTIVE)
   createdAt          DateTime            @default(now())
@@ -548,16 +557,24 @@ model SalesOrder {
   notes           String?
   createdById     String
   completedById   String?
+  claimedById     String?
+  claimedCashSessionId String?
   invoiceId       String?          @unique
   sentToCashierAt DateTime?
+  claimedAt       DateTime?
+  claimExpiresAt  DateTime?
+  releasedAt      DateTime?
   completedAt     DateTime?
   cancelledAt     DateTime?
+  cancelReason    String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   createdBy       User             @relation("SalesOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   completedBy     User?            @relation("SalesOrderCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  claimedBy       User?            @relation("SalesOrderClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  claimedCashSession CashSession?  @relation("SalesOrderClaimedCashSession", fields: [claimedCashSessionId], references: [id], onDelete: SetNull)
   invoice         Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   items           SalesOrderItem[]
 
@@ -567,6 +584,9 @@ model SalesOrder {
   @@index([tenantId, createdAt])
   @@index([createdById])
   @@index([completedById])
+  @@index([claimedById])
+  @@index([claimedCashSessionId])
+  @@index([claimExpiresAt])
 }
 
 model SalesOrderItem {
@@ -577,6 +597,7 @@ model SalesOrderItem {
   barcode      String?
   description  String
   quantity     Decimal    @db.Decimal(12, 2)
+  reservedQuantity Int     @default(0)
   unitPrice    Decimal    @db.Decimal(12, 2)
   taxRate      Decimal    @db.Decimal(5, 4)
   taxTotal     Decimal    @default(0) @db.Decimal(12, 2)
@@ -697,6 +718,7 @@ model CashSession {
   invoices       Invoice[]
   payments       Payment[]
   employeeActivityLogs EmployeeActivityLog[]
+  claimedSalesOrders SalesOrder[] @relation("SalesOrderClaimedCashSession")
 
   @@index([tenantId])
   @@index([tenantId, status])

@@ -34,3 +34,16 @@ export class CreateSalesOrderDto {
   @Type(() => SalesOrderItemDto)
   items: SalesOrderItemDto[];
 }
+
+export class ClaimSalesOrderDto {
+  @IsOptional()
+  @IsString()
+  cashSessionId?: string;
+}
+
+export class CancelSalesOrderDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
+}

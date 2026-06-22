@@ -31,6 +31,7 @@ export type DashboardSummary = {
     name: string;
     sku: string | null;
     stock: number;
+    reservedStock: number;
     minStock: number;
   }>;
   recentCashMovements: CashMovement[];
@@ -103,6 +104,7 @@ export type Product = {
   taxRate: string;
   trackInventory: boolean;
   stock: number;
+  reservedStock: number;
   minStock: number;
   status: string;
   category?: {
@@ -210,10 +212,16 @@ export type SalesOrder = {
   notes: string | null;
   createdById: string;
   completedById: string | null;
+  claimedById: string | null;
+  claimedCashSessionId: string | null;
   invoiceId: string | null;
   sentToCashierAt: string | null;
+  claimedAt: string | null;
+  claimExpiresAt: string | null;
+  releasedAt: string | null;
   completedAt: string | null;
   cancelledAt: string | null;
+  cancelReason: string | null;
   createdAt: string;
   updatedAt: string;
   customer: Customer | null;
@@ -226,6 +234,19 @@ export type SalesOrder = {
     id: string;
     name: string;
     email: string;
+  } | null;
+  claimedBy: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  claimedCashSession: {
+    id: string;
+    cashRegister: {
+      id: string;
+      name: string;
+      location: string | null;
+    };
   } | null;
   invoice: {
     id: string;
@@ -240,6 +261,7 @@ export type SalesOrder = {
     barcode: string | null;
     description: string;
     quantity: string;
+    reservedQuantity: number;
     unitPrice: string;
     taxRate: string;
     taxTotal: string;
@@ -319,6 +341,7 @@ export type CashSession = {
     email: string;
   } | null;
   movements?: CashSessionMovement[];
+  claimedSalesOrders?: SalesOrder[];
 };
 
 export type CashSessionMovement = {
@@ -503,6 +526,19 @@ const apiMessageTranslations: Record<string, string> = {
   'Employee profile must be active to take orders.':
     'El perfil del empleado debe estar activo para tomar ordenes.',
   'Only pending sales orders can be cancelled.': 'Solo las ordenes pendientes pueden cancelarse.',
+  'Sales order has already been completed.': 'Esta orden ya fue cobrada.',
+  'Sales order has already been cancelled.': 'Esta orden ya fue cancelada.',
+  'Sales order is already claimed by another cashier.':
+    'Esta orden ya esta siendo atendida por otro cajero.',
+  'Only claimed sales orders can be released.': 'Solo se pueden liberar ordenes tomadas por caja.',
+  'Employee does not have permission to release this sales order.':
+    'Tu usuario no puede liberar esta orden.',
+  'An open cash session for this cashier is required to claim sales orders.':
+    'Debes abrir caja antes de tomar una orden para cobrar.',
+  'Close pending claimed sales orders before closing cash session.':
+    'Libera o cobra las ordenes tomadas antes de cerrar la caja.',
+  'Could not reserve fiscal sequence.':
+    'No se pudo reservar la secuencia fiscal. Intenta nuevamente.',
   'Could not generate a unique barcode.': 'No se pudo generar un codigo de barras unico.',
   'Product must have a barcode before printing labels.':
     'El producto debe tener codigo de barras antes de imprimir etiquetas.',
@@ -565,6 +601,11 @@ function translateApiMessage(message: string) {
   if (message.startsWith('Insufficient stock for ') && message.endsWith('.')) {
     const productName = message.replace('Insufficient stock for ', '').replace(/\.$/, '');
     return `Stock insuficiente para ${productName}.`;
+  }
+
+  if (message.startsWith('Insufficient available stock for ') && message.endsWith('.')) {
+    const productName = message.replace('Insufficient available stock for ', '').replace(/\.$/, '');
+    return `Stock disponible insuficiente para ${productName}.`;
   }
 
   return message;
@@ -682,10 +723,36 @@ export function createSalesOrder(
   });
 }
 
-export function cancelSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+export function claimSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  orderId: string,
+  payload: { cashSessionId?: string },
+) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/claim`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function releaseSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/release`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function cancelSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  orderId: string,
+  reason?: string,
+) {
   return fetchJson<SalesOrder>(`/orders/${orderId}/cancel`, {
     method: 'POST',
     headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify({ reason }),
   });
 }
 

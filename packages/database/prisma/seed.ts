@@ -732,6 +732,7 @@ async function main() {
           barcode: line.barcode,
           description: line.description,
           quantity: line.quantity,
+          reservedQuantity: line.quantity,
           unitPrice: line.unitPrice,
           taxRate: line.taxRate,
           taxTotal: line.taxTotal,
@@ -741,6 +742,17 @@ async function main() {
       },
     },
   });
+
+  for (const line of pendingOrderAmounts.lines) {
+    await prisma.product.update({
+      where: { id: line.productId },
+      data: {
+        reservedStock: {
+          increment: line.quantity,
+        },
+      },
+    });
+  }
 
   const paidAmounts = getInvoiceAmounts([
     {

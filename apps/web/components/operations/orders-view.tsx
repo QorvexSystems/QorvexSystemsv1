@@ -26,7 +26,7 @@ import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
 import { PosCart } from './pos/pos-cart';
 import { PosProductGrid } from './pos/pos-product-grid';
-import { canAddProduct, getProductPrice, uniqueValues } from './pos/pos-utils';
+import { canAddProduct, getAvailableStock, getProductPrice, uniqueValues } from './pos/pos-utils';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
 
@@ -69,8 +69,8 @@ export function OrdersView() {
     enabled: Boolean(session),
   });
   const pendingOrdersQuery = useQuery({
-    queryKey: ['sales-orders', session?.tenantId, 'SENT_TO_CASHIER'],
-    queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'SENT_TO_CASHIER'),
+    queryKey: ['sales-orders', session?.tenantId, 'OPEN'],
+    queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'OPEN'),
     enabled: Boolean(session),
   });
 
@@ -161,12 +161,12 @@ export function OrdersView() {
   });
 
   const cancelOrderMutation = useMutation({
-    mutationFn: (orderId: string) => {
+    mutationFn: ({ orderId, reason }: { orderId: string; reason?: string }) => {
       if (!session) {
         throw new Error('Sesion requerida.');
       }
 
-      return cancelSalesOrder(session.tenantId, session.accessToken, orderId);
+      return cancelSalesOrder(session.tenantId, session.accessToken, orderId, reason);
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
@@ -222,8 +222,9 @@ export function OrdersView() {
             return item;
           }
 
+          const availableStock = getAvailableStock(item.product);
           const nextQuantity = item.product.trackInventory
-            ? Math.min(quantity, item.product.stock)
+            ? Math.min(quantity, availableStock)
             : quantity;
 
           return { ...item, quantity: nextQuantity };
@@ -465,8 +466,14 @@ export function OrdersView() {
           <PendingOrdersPanel
             orders={pendingOrdersQuery.data ?? []}
             loading={pendingOrdersQuery.isLoading}
-            cancellingId={cancelOrderMutation.variables}
-            onCancel={(orderId) => cancelOrderMutation.mutate(orderId)}
+            cancellingId={cancelOrderMutation.variables?.orderId}
+            onCancel={(orderId) => {
+              const reason = window.prompt('Motivo de cancelacion de la orden');
+              if (reason === null) {
+                return;
+              }
+              cancelOrderMutation.mutate({ orderId, reason: reason.trim() || undefined });
+            }}
           />
         </div>
       </section>
@@ -507,6 +514,14 @@ function PendingOrdersPanel({
                     {order.customer?.name ?? 'Consumidor final'} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">Creada por {order.createdBy.name}</p>
+                  {order.claimedBy ? (
+                    <p className="mt-1 text-xs text-warning">
+                      Tomada por {order.claimedBy.name}
+                      {order.claimedCashSession?.cashRegister.name
+                        ? ` en ${order.claimedCashSession.cashRegister.name}`
+                        : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <p className="shrink-0 text-sm font-bold">{formatCurrency(Number(order.total))}</p>
               </div>
@@ -517,7 +532,7 @@ function PendingOrdersPanel({
                   variant="ghost"
                   size="sm"
                   onClick={() => onCancel(order.id)}
-                  disabled={cancellingId === order.id}
+                  disabled={cancellingId === order.id || order.status === 'IN_CASHIER'}
                 >
                   <X className="h-4 w-4" />
                   Cancelar

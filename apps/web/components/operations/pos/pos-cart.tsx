@@ -4,7 +4,7 @@ import { Minus, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
-import { getProductPrice } from './pos-utils';
+import { getAvailableStock, getProductPrice } from './pos-utils';
 import type { CartItem } from './types';
 
 type PosCartProps = {
@@ -39,9 +39,10 @@ export function PosCart({
       <div className="max-h-[26rem] space-y-2 overflow-y-auto p-3">
         {items.length ? (
           items.map((item) => {
-            const unitPrice = getProductPrice(item.product);
-            const subtotal = unitPrice * item.quantity;
-            const stockWarning = item.product.trackInventory && item.quantity >= item.product.stock;
+            const unitPrice = item.unitPrice ?? getProductPrice(item.product);
+            const subtotal = item.subtotal ?? unitPrice * item.quantity;
+            const availableStock = getAvailableStock(item.product);
+            const stockWarning = item.product.trackInventory && item.quantity >= availableStock;
 
             return (
               <div key={item.product.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
@@ -94,14 +95,16 @@ export function PosCart({
                       variant="outline"
                       size="icon"
                       onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
-                      disabled={item.product.trackInventory && item.quantity >= item.product.stock}
+                      disabled={item.product.trackInventory && item.quantity >= availableStock}
                       aria-label="Aumentar cantidad"
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   ) : null}
                   <span className="text-xs text-muted-foreground">
-                    Stock: {item.product.trackInventory ? item.product.stock : 'No aplica'}
+                    {readOnly && item.reservedQuantity
+                      ? `Reservado: ${item.reservedQuantity}`
+                      : `Disponible: ${item.product.trackInventory ? availableStock : 'No aplica'}`}
                   </span>
                 </div>
               </div>

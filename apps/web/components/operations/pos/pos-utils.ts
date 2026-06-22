@@ -9,6 +9,10 @@ export function uniqueValues(values: string[]) {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
+export function getAvailableStock(product: Product) {
+  return Math.max(product.stock - product.reservedStock, 0);
+}
+
 export function getProductInitials(product: Product) {
   return product.name
     .split(/\s+/)
@@ -23,5 +27,5 @@ export function canAddProduct(product: Product, currentQuantity = 0) {
     return true;
   }
 
-  return product.stock > currentQuantity;
+  return getAvailableStock(product) > currentQuantity;
 }

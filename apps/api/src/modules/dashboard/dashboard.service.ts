@@ -165,6 +165,7 @@ export class DashboardService {
           name: true,
           sku: true,
           stock: true,
+          reservedStock: true,
           minStock: true,
         },
       }),
@@ -184,7 +185,7 @@ export class DashboardService {
     ]);
 
     const recentInventoryAlerts = productsForStock
-      .filter((product) => product.stock <= product.minStock)
+      .filter((product) => product.stock - product.reservedStock <= product.minStock)
       .slice(0, 5);
 
     return {
