@@ -1,11 +1,10 @@
 'use client';
 
 import { ReceiptText } from 'lucide-react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Customer, Invoice } from '@/lib/api';
+import type { Customer } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { PaymentCalculator } from './payment-calculator';
 import type { PosTotals } from './types';
@@ -18,7 +17,6 @@ type PosPaymentPanelProps = {
   amountReceived: string;
   totals: PosTotals;
   message: string | null;
-  lastInvoice: Invoice | null;
   canCompleteSale: boolean;
   isCompleting: boolean;
   onCustomerChange: (value: string) => void;
@@ -36,7 +34,6 @@ export function PosPaymentPanel({
   amountReceived,
   totals,
   message,
-  lastInvoice,
   canCompleteSale,
   isCompleting,
   onCustomerChange,
@@ -100,8 +97,8 @@ export function PosPaymentPanel({
         </div>
       </div>
 
-      <div className="rounded-md border-2 border-[#f36c10]/30 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div className="rounded-md border-2 border-[#f36c10]/40 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3">
           <div className="flex-1 space-y-2">
             <Label htmlFor="amountReceived">
               {cashPayment ? 'Monto entregado por el cliente' : 'Monto pagado'}
@@ -116,19 +113,39 @@ export function PosPaymentPanel({
               disabled={!cashPayment}
               onChange={(event) => onAmountReceivedChange(event.target.value)}
               placeholder={totals.total ? totals.total.toFixed(2) : '0.00'}
-              className="h-12 text-xl font-semibold"
+              className="h-14 text-2xl font-semibold"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:w-56">
-            <div className="rounded-md bg-zinc-950 px-3 py-2 text-white">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md bg-zinc-950 px-4 py-3 text-white">
               <p className="text-xs text-zinc-300">Total</p>
-              <p className="text-lg font-bold">{formatCurrency(totals.total)}</p>
+              <p className="text-2xl font-bold">{formatCurrency(totals.total)}</p>
             </div>
-            <div className="rounded-md bg-success/10 px-3 py-2 text-success">
+            <div className="rounded-md bg-success/10 px-4 py-3 text-success">
               <p className="text-xs">Devuelta</p>
-              <p className="text-lg font-bold">{formatCurrency(totals.change)}</p>
+              <p className="text-2xl font-bold">{formatCurrency(totals.change)}</p>
             </div>
           </div>
+
+          {cashInsufficient ? (
+            <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+              El efectivo recibido debe cubrir el total para completar la venta.
+            </p>
+          ) : null}
+
+          <Button
+            type="button"
+            className="h-16 w-full bg-[#f36c10] text-lg font-bold text-white hover:bg-[#d85f0e]"
+            disabled={!canCompleteSale || cashInsufficient || isCompleting}
+            onClick={onCompleteSale}
+          >
+            <ReceiptText className="h-5 w-5" />
+            {isCompleting ? 'Facturando...' : 'Facturar e imprimir'}
+          </Button>
+
+          <p className="text-center text-xs text-muted-foreground">
+            Al confirmar, se emite la factura y se abre el recibo para imprimir automaticamente.
+          </p>
         </div>
         {!cashPayment ? (
           <p className="mt-2 text-xs text-muted-foreground">
@@ -168,30 +185,7 @@ export function PosPaymentPanel({
           </div>
         </div>
 
-        {cashInsufficient ? (
-          <p className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
-            El efectivo recibido debe cubrir el total para completar la venta.
-          </p>
-        ) : null}
-
         {message ? <p className="mt-3 text-sm text-muted-foreground">{message}</p> : null}
-
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <Button
-            type="button"
-            className="h-12 flex-1 bg-[#f36c10] text-base text-white hover:bg-[#d85f0e]"
-            disabled={!canCompleteSale || cashInsufficient || isCompleting}
-            onClick={onCompleteSale}
-          >
-            <ReceiptText className="h-4 w-4" />
-            Completar venta
-          </Button>
-          {lastInvoice ? (
-            <Button asChild variant="outline" className="h-12 flex-1">
-              <Link href={`/invoices/${lastInvoice.id}/print`}>Imprimir</Link>
-            </Button>
-          ) : null}
-        </div>
       </div>
     </div>
   );

@@ -37,21 +37,52 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
       </div>
 
       <div className="mb-3 grid grid-cols-4 gap-2">
-        <Button type="button" variant="outline" disabled={disabled} onClick={() => onAmountChange(total.toFixed(2))}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-12 text-base font-semibold"
+          disabled={disabled}
+          onClick={() => onAmountChange(total.toFixed(2))}
+        >
           Exacto
         </Button>
         {[50, 100, 500].map((amount) => (
-          <Button key={amount} type="button" variant="outline" disabled={disabled} onClick={() => addAmount(amount)}>
+          <Button
+            key={amount}
+            type="button"
+            variant="outline"
+            className="h-12 text-base font-semibold"
+            disabled={disabled}
+            onClick={() => addAmount(amount)}
+          >
             +{amount}
           </Button>
         ))}
-        <Button type="button" variant="outline" disabled={disabled} onClick={() => addAmount(1000)}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-12 text-base font-semibold"
+          disabled={disabled}
+          onClick={() => addAmount(1000)}
+        >
           +1000
         </Button>
-        <Button type="button" variant="outline" disabled={disabled} onClick={() => onAmountChange(amountReceived.slice(0, -1))}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-12"
+          disabled={disabled}
+          onClick={() => onAmountChange(amountReceived.slice(0, -1))}
+        >
           <Delete className="h-4 w-4" />
         </Button>
-        <Button type="button" variant="outline" disabled={disabled} onClick={() => onAmountChange('')} className="col-span-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          onClick={() => onAmountChange('')}
+          className="col-span-2 h-12 text-base font-semibold"
+        >
           <RotateCcw className="h-4 w-4" />
           Limpiar
         </Button>
@@ -63,7 +94,7 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
             key={key}
             type="button"
             variant="outline"
-            className="h-12 text-base"
+            className="h-14 text-lg font-semibold"
             disabled={disabled}
             onClick={() => append(key)}
           >

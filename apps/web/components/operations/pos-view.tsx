@@ -23,7 +23,6 @@ import {
   openCashSession,
   releaseSalesOrder,
   searchPosProducts,
-  type Invoice,
   type Product,
   type SalesOrder,
 } from '@/lib/api';
@@ -73,7 +72,6 @@ export function PosView() {
   const [closingAmount, setClosingAmount] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
-  const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
   const [loadedOrder, setLoadedOrder] = useState<SalesOrder | null>(null);
 
   const customersQuery = useQuery({
@@ -292,7 +290,6 @@ export function PosView() {
     },
     onSuccess: async (invoice) => {
       setMessage(`Factura ${invoice.invoiceNumber} creada correctamente.`);
-      setLastInvoice(invoice);
       setCart([]);
       setLoadedOrder(null);
       setAmountReceived('');
@@ -382,7 +379,6 @@ export function PosView() {
     }
 
     setMessage(null);
-    setLastInvoice(null);
     setCart((current) => {
       const existing = current.find((item) => item.product.id === product.id);
 
@@ -705,7 +701,6 @@ export function PosView() {
               amountReceived={amountReceived}
               totals={totals}
               message={message}
-              lastInvoice={lastInvoice}
               canCompleteSale={canCompleteSale}
               isCompleting={completeSaleMutation.isPending}
               onCustomerChange={setCustomerId}
