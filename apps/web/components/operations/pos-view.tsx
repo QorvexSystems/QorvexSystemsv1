@@ -31,7 +31,13 @@ import { isAdminSession } from '@/lib/authorization';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
-import { clearCurrencyInput, formatCurrencyInput, sanitizeCurrencyInput } from './pos/currency-input';
+import {
+  clearCurrencyInput,
+  formatCurrencyInput,
+  formatCurrencyInputFromNumber,
+  parseCurrencyInput,
+  sanitizeCurrencyInput,
+} from './pos/currency-input';
 import { PosCart } from './pos/pos-cart';
 import { PosPaymentPanel } from './pos/pos-payment-panel';
 import { PosProductGrid } from './pos/pos-product-grid';
@@ -69,7 +75,7 @@ export function PosView() {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [brandFilter, setBrandFilter] = useState('ALL');
   const [selectedRegisterId, setSelectedRegisterId] = useState('');
-  const [openingAmount, setOpeningAmount] = useState('5000');
+  const [openingAmount, setOpeningAmount] = useState(formatCurrencyInputFromNumber(5000));
   const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -146,7 +152,7 @@ export function PosView() {
       0,
     );
     const total = subtotal + tax;
-    const received = Number(amountReceived || 0);
+    const received = parseCurrencyInput(amountReceived);
 
     return {
       subtotal,
@@ -160,7 +166,7 @@ export function PosView() {
 
   useEffect(() => {
     if (paymentMethod !== 'CASH' && totals.total > 0) {
-      setAmountReceived(totals.total.toFixed(2));
+      setAmountReceived(formatCurrencyInputFromNumber(totals.total));
     }
   }, [paymentMethod, totals.total]);
 
@@ -202,7 +208,7 @@ export function PosView() {
 
       return openCashSession(session.tenantId, session.accessToken, {
         cashRegisterId: selectedRegisterId,
-        openingAmount: Number(openingAmount),
+        openingAmount: parseCurrencyInput(openingAmount),
       });
     },
     onSuccess: async () => {
@@ -225,7 +231,7 @@ export function PosView() {
       }
 
       return closeCashSession(session.tenantId, session.accessToken, currentCashSession.id, {
-        closingAmount: Number(closingAmount),
+        closingAmount: parseCurrencyInput(closingAmount),
         notes: 'Cierre desde caja',
       });
     },
@@ -282,7 +288,7 @@ export function PosView() {
         documentType,
         paymentMethod,
         cashSessionId: currentCashSession?.id,
-        amountReceived: amountReceived ? Number(amountReceived) : undefined,
+        amountReceived: amountReceived ? parseCurrencyInput(amountReceived) : undefined,
         orderId: loadedOrder?.id,
         items: cart.map((item) => ({
           productId: item.product.id,
@@ -960,11 +966,12 @@ function ClosedCashPanel({
               <Label htmlFor="openingAmount">Monto inicial</Label>
               <Input
                 id="openingAmount"
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={openingAmount}
-                onChange={(event) => onOpeningAmountChange(event.target.value)}
+                onChange={(event) => onOpeningAmountChange(sanitizeCurrencyInput(event.target.value))}
+                onBlur={(event) => onOpeningAmountChange(formatCurrencyInput(event.target.value))}
+                onFocus={(event) => event.currentTarget.select()}
                 required
               />
             </div>

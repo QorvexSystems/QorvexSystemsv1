@@ -13,6 +13,13 @@ import { Label } from '@/components/ui/label';
 import { createProduct, getProduct, updateProduct } from '@/lib/api';
 import { ModuleHeader } from './module-header';
 import { BarcodeCameraScanner } from './barcode-camera-scanner';
+import {
+  clearCurrencyInput,
+  formatCurrencyInput,
+  formatCurrencyInputFromNumber,
+  parseCurrencyInput,
+  sanitizeCurrencyInput,
+} from './pos/currency-input';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 type ProductFormState = {
@@ -38,8 +45,8 @@ const defaultState: ProductFormState = {
   imageUrl: '',
   brand: '',
   unit: 'UNIT',
-  price: '0',
-  cost: '0',
+  price: clearCurrencyInput(),
+  cost: clearCurrencyInput(),
   taxRate: '0.18',
   stock: '0',
   minStock: '0',
@@ -71,8 +78,8 @@ export function ProductForm({ productId }: { productId?: string }) {
         imageUrl: productQuery.data.imageUrl ?? '',
         brand: productQuery.data.brand ?? '',
         unit: productQuery.data.unit,
-        price: productQuery.data.salePrice || productQuery.data.price,
-        cost: productQuery.data.cost ?? '0',
+        price: formatCurrencyInputFromNumber(Number(productQuery.data.salePrice ?? productQuery.data.price ?? 0)),
+        cost: formatCurrencyInputFromNumber(Number(productQuery.data.cost ?? 0)),
         taxRate: productQuery.data.taxRate,
         stock: String(productQuery.data.stock),
         minStock: String(productQuery.data.minStock),
@@ -95,8 +102,8 @@ export function ProductForm({ productId }: { productId?: string }) {
         imageUrl: form.imageUrl || undefined,
         brand: form.brand || undefined,
         unit: form.unit,
-        price: Number(form.price),
-        cost: Number(form.cost),
+        price: parseCurrencyInput(form.price),
+        cost: parseCurrencyInput(form.cost),
         taxRate: Number(form.taxRate),
         stock: Number(form.stock),
         minStock: Number(form.minStock),
@@ -220,22 +227,24 @@ export function ProductForm({ productId }: { productId?: string }) {
                 <option value="DISCONTINUED">Descontinuado</option>
               </select>
             </Field>
-            <Field label="Precio">
+            <Field label="Precio (RD$)">
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={form.price}
-                onChange={(event) => updateField('price', event.target.value)}
+                onChange={(event) => updateField('price', sanitizeCurrencyInput(event.target.value))}
+                onBlur={(event) => updateField('price', formatCurrencyInput(event.target.value))}
+                onFocus={(event) => event.currentTarget.select()}
               />
             </Field>
-            <Field label="Costo">
+            <Field label="Costo (RD$)">
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={form.cost}
-                onChange={(event) => updateField('cost', event.target.value)}
+                onChange={(event) => updateField('cost', sanitizeCurrencyInput(event.target.value))}
+                onBlur={(event) => updateField('cost', formatCurrencyInput(event.target.value))}
+                onFocus={(event) => event.currentTarget.select()}
               />
             </Field>
             <Field label="ITBIS">

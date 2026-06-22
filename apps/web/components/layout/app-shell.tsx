@@ -11,7 +11,7 @@ import { clearSession, getSession, type AuthSession } from '@/lib/auth-session';
 import { canAccessPath, getDefaultPathForSession } from '@/lib/authorization';
 import { getCurrentCashSession, getDashboardSummary } from '@/lib/api';
 import { translateRole } from '@/lib/display-labels';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import { GlobalSearch } from './global-search';
 import { getVisibleNavigation, Sidebar } from './sidebar';
 
@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       if (currentCashSession?.status === 'OPEN') {
         toast.warning('Debes cerrar la caja antes de salir.', {
-          description: `${currentCashSession.cashRegister.name} sigue abierta con fondo inicial ${currentCashSession.openingAmount}.`,
+          description: `${currentCashSession.cashRegister.name} sigue abierta con fondo inicial ${formatCurrency(Number(currentCashSession.openingAmount))}.`,
         });
         router.push(canAccessPath(session, '/cash/sessions') ? '/cash/sessions' : getDefaultPathForSession(session));
         return;

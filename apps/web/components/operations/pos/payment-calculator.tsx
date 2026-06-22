@@ -3,7 +3,13 @@
 import { Delete, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
-import { appendCurrencyInput, backspaceCurrencyInput, clearCurrencyInput } from './currency-input';
+import {
+  appendCurrencyInput,
+  backspaceCurrencyInput,
+  clearCurrencyInput,
+  formatCurrencyInputFromNumber,
+  parseCurrencyInput,
+} from './currency-input';
 
 type PaymentCalculatorProps = {
   total: number;
@@ -20,8 +26,8 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
   }
 
   function addAmount(value: number) {
-    const current = Number(amountReceived || 0);
-    onAmountChange((current + value).toFixed(2));
+    const current = parseCurrencyInput(amountReceived);
+    onAmountChange(formatCurrencyInputFromNumber(current + value));
   }
 
   return (
@@ -29,7 +35,7 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
       <div className="mb-3 rounded-md bg-zinc-950 p-3 text-white">
         <p className="text-xs text-zinc-300">Total a cobrar</p>
         <p className="mt-1 text-2xl font-bold">{formatCurrency(total)}</p>
-        <p className="mt-2 text-xs text-zinc-300">Recibido: {formatCurrency(Number(amountReceived || 0))}</p>
+        <p className="mt-2 text-xs text-zinc-300">Recibido: {formatCurrency(parseCurrencyInput(amountReceived))}</p>
       </div>
 
       <div className="mb-3 grid grid-cols-4 gap-2">
@@ -38,7 +44,7 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
           variant="outline"
           className="h-12 text-base font-semibold"
           disabled={disabled}
-          onClick={() => onAmountChange(total.toFixed(2))}
+          onClick={() => onAmountChange(formatCurrencyInputFromNumber(total))}
         >
           Exacto
         </Button>

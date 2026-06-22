@@ -23,7 +23,13 @@ import {
 } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
-import { clearCurrencyInput, formatCurrencyInput, sanitizeCurrencyInput } from './pos/currency-input';
+import {
+  clearCurrencyInput,
+  formatCurrencyInput,
+  formatCurrencyInputFromNumber,
+  parseCurrencyInput,
+  sanitizeCurrencyInput,
+} from './pos/currency-input';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function CashSessionsView() {
@@ -31,7 +37,7 @@ export function CashSessionsView() {
   const queryClient = useQueryClient();
   const [selectedRegisterId, setSelectedRegisterId] = useState('');
   const [selectedClosingSessionId, setSelectedClosingSessionId] = useState('');
-  const [openingAmount, setOpeningAmount] = useState('5000');
+  const [openingAmount, setOpeningAmount] = useState(formatCurrencyInputFromNumber(5000));
   const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [message, setMessage] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
@@ -80,7 +86,7 @@ export function CashSessionsView() {
 
       return openCashSession(session.tenantId, session.accessToken, {
         cashRegisterId: selectedRegisterId,
-        openingAmount: Number(openingAmount),
+        openingAmount: parseCurrencyInput(openingAmount),
       });
     },
     onSuccess: async () => {
@@ -102,7 +108,7 @@ export function CashSessionsView() {
       }
 
       return closeCashSession(session.tenantId, session.accessToken, selectedClosingSessionId, {
-        closingAmount: Number(closingAmount),
+        closingAmount: parseCurrencyInput(closingAmount),
         notes: 'Cierre desde modulo de caja',
       });
     },
@@ -183,11 +189,12 @@ export function CashSessionsView() {
               <Label htmlFor="openingAmount">Monto inicial</Label>
               <Input
                 id="openingAmount"
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={openingAmount}
-                onChange={(event) => setOpeningAmount(event.target.value)}
+                onChange={(event) => setOpeningAmount(sanitizeCurrencyInput(event.target.value))}
+                onBlur={(event) => setOpeningAmount(formatCurrencyInput(event.target.value))}
+                onFocus={(event) => event.currentTarget.select()}
                 required
               />
             </div>

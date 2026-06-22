@@ -1,5 +1,10 @@
 'use client';
 
+const currencyInputFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function sanitizeCurrencyInput(value: string) {
   return formatMinorUnitsInput(value);
 }
@@ -20,15 +25,27 @@ export function clearCurrencyInput() {
   return '0.00';
 }
 
-function formatMinorUnitsInput(value: string) {
+export function parseCurrencyInput(value: string) {
   const digits = getMinorUnitDigits(value);
   const cents = Number(digits || 0);
 
   if (!Number.isFinite(cents)) {
-    return '0.00';
+    return 0;
   }
 
-  return (cents / 100).toFixed(2);
+  return cents / 100;
+}
+
+export function formatCurrencyInputFromNumber(value: number) {
+  if (!Number.isFinite(value)) {
+    return clearCurrencyInput();
+  }
+
+  return currencyInputFormatter.format(value);
+}
+
+function formatMinorUnitsInput(value: string) {
+  return formatCurrencyInputFromNumber(parseCurrencyInput(value));
 }
 
 function getMinorUnitDigits(value: string) {
