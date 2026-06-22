@@ -36,6 +36,7 @@ import { PosCart } from './pos/pos-cart';
 import { PosPaymentPanel } from './pos/pos-payment-panel';
 import { PosProductGrid } from './pos/pos-product-grid';
 import { canAddProduct, getAvailableStock, getProductPrice, uniqueValues } from './pos/pos-utils';
+import { playScanFeedback } from './pos/scan-feedback';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
 
@@ -251,14 +252,20 @@ export function PosView() {
       return getPosProductByBarcode(session.tenantId, session.accessToken, code);
     },
     onSuccess: (product) => {
-      addProduct(product);
+      const added = addProduct(product);
       setBarcode('');
-      setLastScannedProduct(product);
-      setScannerMessage(`Producto agregado: ${product.name}`);
-      toast.success('Producto agregado', { description: product.name });
+      if (added) {
+        playScanFeedback('success');
+        setLastScannedProduct(product);
+        setScannerMessage(`Producto agregado: ${product.name}`);
+        toast.success('Producto agregado', { description: product.name });
+      } else {
+        playScanFeedback('error');
+      }
     },
     onError: () => {
       setBarcode('');
+      playScanFeedback('error');
       setScannerMessage('Producto no encontrado.');
       toast.error('Producto no encontrado.');
     },
@@ -362,7 +369,7 @@ export function PosView() {
   function addProduct(product: Product) {
     if (!canCreateDirectSale) {
       setMessage('El cajero solo puede cobrar ordenes enviadas a caja.');
-      return;
+      return false;
     }
 
     const currentQuantity = quantitiesByProduct[product.id] ?? 0;
@@ -371,7 +378,7 @@ export function PosView() {
 
     if (!canAddProduct(product, currentQuantity)) {
       setMessage(`No hay stock disponible para ${product.name}.`);
-      return;
+      return false;
     }
 
     setMessage(null);
@@ -387,6 +394,8 @@ export function PosView() {
 
       return [...current, { product, quantity: 1 }];
     });
+
+    return true;
   }
 
   function updateQuantity(productId: string, quantity: number) {
@@ -665,7 +674,7 @@ export function PosView() {
           <div className="space-y-3 xl:sticky xl:top-24">
             {loadedOrder ? (
               <div className="flex flex-col gap-2 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05] sm:flex-row sm:items-center sm:justify-between">
-                <span>Cobrando orden {loadedOrder.orderNumber} con precios congelados.</span>
+                <span>Cobrando ticket pendiente {loadedOrder.orderNumber}. La factura se emitira al completar el cobro.</span>
                 <Button
                   type="button"
                   size="sm"
@@ -750,6 +759,10 @@ function SalesOrdersQueuePanel({
           order.claimedBy?.name,
           order.invoice?.invoiceNumber,
           String(order.total),
+          formatCurrency(Number(order.total)),
+          `${getWaitingMinutes(order)} min`,
+          `${getWaitingMinutes(order)} minutos`,
+          translateStatus(order.status),
         ]
           .filter(Boolean)
           .some((value) => value!.toLowerCase().includes(normalizedSearch)),
@@ -761,8 +774,8 @@ function SalesOrdersQueuePanel({
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle>Ordenes enviadas a caja</CardTitle>
-            <CardDescription>Selecciona una orden pendiente para cargarla en el carrito.</CardDescription>
+            <CardTitle>Tickets pendientes en caja</CardTitle>
+            <CardDescription>Selecciona una preventa pendiente para cobrarla y emitir factura.</CardDescription>
           </div>
           <Badge variant={orders.length ? 'warning' : 'outline'}>{orders.length} pendiente(s)</Badge>
         </div>
@@ -775,7 +788,7 @@ function SalesOrdersQueuePanel({
               value={queueSearch}
               onChange={(event) => setQueueSearch(event.target.value)}
               className="bg-white pl-9"
-              placeholder="Buscar por orden, cliente, ordenanza o monto"
+              placeholder="Buscar por ticket, cliente, ordenanza, monto o tiempo"
             />
           </div>
         </div>
@@ -784,7 +797,7 @@ function SalesOrdersQueuePanel({
         ) : visibleOrders.length ? (
           <div className="grid gap-2 lg:grid-cols-2">
             {visibleOrders.map((order) => (
-              <div key={order.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <div key={order.id} className={getWaitingCardClass(order)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -821,7 +834,7 @@ function SalesOrdersQueuePanel({
                     }
                   >
                     <ClipboardCheck className="h-4 w-4" />
-                    {loadedOrderId === order.id ? 'Cargada' : order.status === 'IN_CASHIER' ? 'Tomada' : 'Tomar'}
+                    {loadedOrderId === order.id ? 'Cargada' : order.status === 'IN_CASHIER' ? 'Tomada' : 'Cobrar'}
                   </Button>
                 </div>
               </div>
@@ -831,7 +844,7 @@ function SalesOrdersQueuePanel({
           <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
             <ClipboardCheck className="mx-auto h-6 w-6 text-muted-foreground" />
             <p className="mt-2 text-sm text-muted-foreground">
-              {orders.length ? 'No hay ordenes que coincidan con la busqueda.' : 'No hay ordenes pendientes de cobro.'}
+              {orders.length ? 'No hay tickets que coincidan con la busqueda.' : 'No hay tickets pendientes de cobro.'}
             </p>
           </div>
         )}
@@ -1037,4 +1050,18 @@ function getWaitingVariant(order: SalesOrder) {
   }
 
   return 'outline' as const;
+}
+
+function getWaitingCardClass(order: SalesOrder) {
+  const minutes = getWaitingMinutes(order);
+
+  if (minutes >= 30) {
+    return 'rounded-md border border-danger/40 bg-danger/5 p-3';
+  }
+
+  if (minutes >= 10) {
+    return 'rounded-md border border-warning/40 bg-warning/10 p-3';
+  }
+
+  return 'rounded-md border border-zinc-200 bg-zinc-50 p-3';
 }

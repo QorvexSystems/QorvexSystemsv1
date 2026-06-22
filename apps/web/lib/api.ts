@@ -159,6 +159,19 @@ export type Invoice = {
     name: string;
     email: string;
   } | null;
+  payments?: Array<{
+    id: string;
+    method: string;
+    amount: string | number;
+    status: string;
+    paidAt: string | null;
+    createdAt: string;
+  }>;
+  salesOrder?: {
+    id: string;
+    orderNumber: string;
+    status: string;
+  } | null;
   items: Array<{
     id: string;
     description: string;
@@ -342,6 +355,7 @@ export type CashSession = {
   } | null;
   movements?: CashSessionMovement[];
   claimedSalesOrders?: SalesOrder[];
+  invoices?: Invoice[];
 };
 
 export type CashSessionMovement = {

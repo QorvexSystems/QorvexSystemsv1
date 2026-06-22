@@ -13,6 +13,7 @@ type BarcodeInputProps = {
   barcodeInputRef: RefObject<HTMLInputElement | null>;
   videoRef: RefObject<HTMLVideoElement | null>;
   isPending: boolean;
+  keepFocus?: boolean;
   onBarcodeChange: (value: string) => void;
   onSubmit: (code: string) => void;
   onEnableScanner: () => void;
@@ -28,6 +29,7 @@ export function BarcodeInput({
   barcodeInputRef,
   videoRef,
   isPending,
+  keepFocus = false,
   onBarcodeChange,
   onSubmit,
   onEnableScanner,
@@ -68,6 +70,11 @@ export function BarcodeInput({
             ref={barcodeInputRef}
             value={barcode}
             onChange={(event) => onBarcodeChange(event.target.value)}
+            onBlur={() => {
+              if (keepFocus && scannerEnabled && !cameraActive) {
+                window.setTimeout(() => barcodeInputRef.current?.focus(), 40);
+              }
+            }}
             className="pl-9"
             placeholder="Escanea o escribe codigo QR o codigo de barras"
             autoComplete="off"

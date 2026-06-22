@@ -176,17 +176,22 @@ export class CashService {
       select: {
         type: true,
         amount: true,
+        method: true,
       },
     });
     const negativeMovementTypes: CashMovementType[] = [CashMovementType.CASH_OUT, CashMovementType.REFUND];
     const expectedAmount = movements
       .reduce((sum, movement) => {
-        if (negativeMovementTypes.includes(movement.type)) {
-          return sum.sub(movement.amount);
-        }
-
         if (movement.type === CashMovementType.CLOSING) {
           return sum;
+        }
+
+        if (movement.method && movement.method !== PaymentMethod.CASH) {
+          return sum;
+        }
+
+        if (negativeMovementTypes.includes(movement.type)) {
+          return sum.sub(movement.amount);
         }
 
         return sum.add(movement.amount);
@@ -344,6 +349,25 @@ export class CashService {
           invoice: { select: { id: true, invoiceNumber: true, total: true } },
         },
         orderBy: { createdAt: 'asc' as const },
+      },
+      invoices: {
+        include: {
+          customer: true,
+          issuedBy: { select: { id: true, name: true, email: true } },
+          items: true,
+          payments: {
+            select: {
+              id: true,
+              method: true,
+              amount: true,
+              status: true,
+              paidAt: true,
+              createdAt: true,
+            },
+          },
+          salesOrder: { select: { id: true, orderNumber: true, status: true } },
+        },
+        orderBy: { issuedAt: 'asc' as const },
       },
       claimedSalesOrders: {
         include: {

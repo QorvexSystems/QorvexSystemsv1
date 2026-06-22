@@ -3,6 +3,7 @@
 import { Minus, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
 import { getAvailableStock, getProductPrice } from './pos-utils';
 import type { CartItem } from './types';
@@ -86,9 +87,24 @@ export function PosCart({
                       <Minus className="h-4 w-4" />
                     </Button>
                   ) : null}
-                  <span className="h-9 w-12 rounded-md border border-zinc-200 bg-white text-center text-sm font-semibold leading-9">
-                    {item.quantity}
-                  </span>
+                  {readOnly ? (
+                    <span className="h-9 w-12 rounded-md border border-zinc-200 bg-white text-center text-sm font-semibold leading-9">
+                      {item.quantity}
+                    </span>
+                  ) : (
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={item.quantity}
+                      onChange={(event) =>
+                        onUpdateQuantity(item.product.id, Number(event.target.value || 0))
+                      }
+                      onFocus={(event) => event.currentTarget.select()}
+                      aria-label={`Cantidad de ${item.product.name}`}
+                      className="h-9 w-20 text-center text-sm font-semibold"
+                    />
+                  )}
                   {!readOnly ? (
                     <Button
                       type="button"

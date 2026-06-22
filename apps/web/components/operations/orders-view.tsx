@@ -27,6 +27,7 @@ import { BarcodeInput } from './pos/barcode-input';
 import { PosCart } from './pos/pos-cart';
 import { PosProductGrid } from './pos/pos-product-grid';
 import { canAddProduct, getAvailableStock, getProductPrice, uniqueValues } from './pos/pos-utils';
+import { playScanFeedback } from './pos/scan-feedback';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
 
@@ -117,14 +118,20 @@ export function OrdersView() {
       return getOrderProductByBarcode(session.tenantId, session.accessToken, code);
     },
     onSuccess: (product) => {
-      addProduct(product);
+      const added = addProduct(product);
       setBarcode('');
-      setLastScannedProduct(product);
-      setScannerMessage(`Producto agregado: ${product.name}`);
-      toast.success('Producto agregado', { description: product.name });
+      if (added) {
+        playScanFeedback('success');
+        setLastScannedProduct(product);
+        setScannerMessage(`Producto agregado: ${product.name}`);
+        toast.success('Producto agregado', { description: product.name });
+      } else {
+        playScanFeedback('error');
+      }
     },
     onError: () => {
       setBarcode('');
+      playScanFeedback('error');
       setScannerMessage('Producto no encontrado.');
       toast.error('Producto no encontrado.');
     },
@@ -146,12 +153,12 @@ export function OrdersView() {
       });
     },
     onSuccess: async (order) => {
-      setMessage(`Orden ${order.orderNumber} enviada a caja.`);
+      setMessage(`Ticket pendiente ${order.orderNumber} enviado a caja. No es una factura fiscal.`);
       setCart([]);
       setNotes('');
       setCustomerId('');
       await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
-      toast.success('Orden enviada a caja', { description: order.orderNumber });
+      toast.success('Ticket enviado a caja', { description: order.orderNumber });
     },
     onError: (error) => {
       const nextMessage = error instanceof Error ? error.message : 'No se pudo enviar la orden.';
@@ -197,7 +204,7 @@ export function OrdersView() {
 
     if (!canAddProduct(product, currentQuantity)) {
       setMessage(`No hay stock disponible para ${product.name}.`);
-      return;
+      return false;
     }
 
     setMessage(null);
@@ -212,6 +219,8 @@ export function OrdersView() {
 
       return [...current, { product, quantity: 1 }];
     });
+
+    return true;
   }
 
   function updateQuantity(productId: string, quantity: number) {
@@ -315,7 +324,7 @@ export function OrdersView() {
     <div className="space-y-5">
       <ModuleHeader
         title="Toma de ordenes"
-        description="Escaneo de productos y envio directo a caja para facturacion."
+        description="Modo escaner para crear tickets pendientes. La factura se emite solamente cuando caja cobra."
       />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(24rem,0.8fr)] xl:items-start">
@@ -341,6 +350,7 @@ export function OrdersView() {
                 barcodeInputRef={barcodeInputRef}
                 videoRef={videoRef}
                 isPending={barcodeMutation.isPending}
+                keepFocus
                 onBarcodeChange={setBarcode}
                 onSubmit={(code) => barcodeMutation.mutate(code)}
                 onEnableScanner={enableScanner}
@@ -399,7 +409,9 @@ export function OrdersView() {
           <Card>
             <CardHeader>
               <CardTitle>Enviar a caja</CardTitle>
-              <CardDescription>La caja recibira esta orden como pendiente para cobrarla.</CardDescription>
+              <CardDescription>
+                Esto crea una preventa/ticket pendiente para caja. No emite factura fiscal.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <form
@@ -455,9 +467,13 @@ export function OrdersView() {
 
                 {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
 
-                <Button type="submit" className="w-full" disabled={!cart.length || createOrderMutation.isPending}>
-                  <Send className="h-4 w-4" />
-                  Enviar orden a caja
+                <Button
+                  type="submit"
+                  className="h-14 w-full bg-[#f36c10] text-base text-white hover:bg-[#d85f0e]"
+                  disabled={!cart.length || createOrderMutation.isPending}
+                >
+                  <Send className="h-5 w-5" />
+                  Enviar a caja
                 </Button>
               </form>
             </CardContent>
@@ -495,8 +511,8 @@ function PendingOrdersPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Ordenes en caja</CardTitle>
-        <CardDescription>Ordenes pendientes de cobro.</CardDescription>
+        <CardTitle>Tickets en caja</CardTitle>
+        <CardDescription>Preventas pendientes de cobro. Aun no son facturas.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {loading ? (
@@ -509,6 +525,7 @@ function PendingOrdersPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
                     <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
+                    <Badge variant={getWaitingVariant(order)}>{getWaitingMinutes(order)} min</Badge>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {order.customer?.name ?? 'Consumidor final'} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
@@ -543,10 +560,29 @@ function PendingOrdersPanel({
         ) : (
           <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
             <ClipboardCheck className="mx-auto h-6 w-6 text-muted-foreground" />
-            <p className="mt-2 text-sm text-muted-foreground">No hay ordenes pendientes.</p>
+            <p className="mt-2 text-sm text-muted-foreground">No hay tickets pendientes.</p>
           </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function getWaitingMinutes(order: SalesOrder) {
+  const startedAt = new Date(order.sentToCashierAt ?? order.createdAt).getTime();
+  return Math.max(Math.floor((Date.now() - startedAt) / 60000), 0);
+}
+
+function getWaitingVariant(order: SalesOrder) {
+  const minutes = getWaitingMinutes(order);
+
+  if (minutes >= 30) {
+    return 'danger' as const;
+  }
+
+  if (minutes >= 10) {
+    return 'warning' as const;
+  }
+
+  return 'outline' as const;
 }

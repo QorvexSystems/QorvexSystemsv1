@@ -358,6 +358,10 @@ export function CashSessionsView() {
 function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>> }) {
   const movements = cashSession.movements ?? [];
   const salesOrders = cashSession.claimedSalesOrders ?? [];
+  const invoices = cashSession.invoices ?? [];
+  const orderInvoices = invoices.filter((invoice) => invoice.salesOrder);
+  const directInvoices = invoices.filter((invoice) => !invoice.salesOrder);
+  const paymentTotals = getInvoicePaymentTotals(invoices);
   const summary = getCashSessionSummary(cashSession);
 
   return (
@@ -365,6 +369,17 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <ReportMetric label="Fondo inicial" value={formatCurrency(summary.opening)} />
         <ReportMetric label="Ventas en efectivo" value={formatCurrency(summary.sales)} />
+        <ReportMetric
+          label="Facturas desde tickets"
+          value={`${orderInvoices.length} / ${formatCurrency(sumInvoiceTotals(orderInvoices))}`}
+        />
+        <ReportMetric
+          label="Ventas directas admin"
+          value={`${directInvoices.length} / ${formatCurrency(sumInvoiceTotals(directInvoices))}`}
+        />
+        <ReportMetric label="Pagos efectivo" value={formatCurrency(paymentTotals.CASH)} />
+        <ReportMetric label="Pagos tarjeta" value={formatCurrency(paymentTotals.CARD)} />
+        <ReportMetric label="Pagos transferencia" value={formatCurrency(paymentTotals.TRANSFER)} />
         <ReportMetric label="Entradas manuales" value={formatCurrency(summary.cashIn)} />
         <ReportMetric label="Salidas y devoluciones" value={formatCurrency(summary.cashOut + summary.refunds)} />
         <ReportMetric label="Ordenes cobradas" value={String(salesOrders.filter((order) => order.status === 'COMPLETED').length)} />
@@ -376,6 +391,45 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
           value={cashSession.difference ? formatCurrency(Number(cashSession.difference)) : '-'}
           tone={Number(cashSession.difference ?? 0) === 0 ? 'neutral' : 'warning'}
         />
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-border bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-zinc-50 text-left">
+              <th className="px-3 py-2">Origen</th>
+              <th className="px-3 py-2">Factura</th>
+              <th className="px-3 py-2">Cliente</th>
+              <th className="px-3 py-2">Cajero</th>
+              <th className="px-3 py-2">Metodo</th>
+              <th className="px-3 py-2 text-right">Pagado</th>
+              <th className="px-3 py-2 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.length ? (
+              invoices.map((invoice) => (
+                <tr key={invoice.id} className="border-b border-border last:border-b-0">
+                  <td className="px-3 py-2">
+                    {invoice.salesOrder ? `Ticket ${invoice.salesOrder.orderNumber}` : 'Venta directa admin'}
+                  </td>
+                  <td className="px-3 py-2 font-medium">{invoice.invoiceNumber}</td>
+                  <td className="px-3 py-2">{invoice.customer?.name ?? 'Consumidor final'}</td>
+                  <td className="px-3 py-2">{invoice.issuedBy?.name ?? 'Empleado'}</td>
+                  <td className="px-3 py-2">{translatePaymentMethod(invoice.paymentMethod)}</td>
+                  <td className="px-3 py-2 text-right">{formatCurrency(Number(invoice.paidAmount))}</td>
+                  <td className="px-3 py-2 text-right font-medium">{formatCurrency(Number(invoice.total))}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={7} className="px-3 py-4 text-center text-muted-foreground">
+                  Esta sesion no tiene facturas emitidas.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border bg-white">
@@ -474,6 +528,39 @@ function ReportMetric({
   );
 }
 
+type ReportInvoice = NonNullable<
+  NonNullable<Awaited<ReturnType<typeof closeCashSession>>>['invoices']
+>[number];
+
+function sumInvoiceTotals(invoices: ReportInvoice[]) {
+  return invoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
+}
+
+function getInvoicePaymentTotals(invoices: ReportInvoice[]) {
+  const totals = {
+    CASH: 0,
+    CARD: 0,
+    TRANSFER: 0,
+  };
+
+  for (const invoice of invoices) {
+    if (invoice.payments?.length) {
+      for (const payment of invoice.payments) {
+        if (payment.method in totals) {
+          totals[payment.method as keyof typeof totals] += Number(payment.amount);
+        }
+      }
+      continue;
+    }
+
+    if (invoice.paymentMethod && invoice.paymentMethod in totals) {
+      totals[invoice.paymentMethod as keyof typeof totals] += Number(invoice.paidAmount);
+    }
+  }
+
+  return totals;
+}
+
 function getCashSessionSummary(cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>>) {
   const summary = {
     opening: 0,
@@ -487,25 +574,36 @@ function getCashSessionSummary(cashSession: NonNullable<Awaited<ReturnType<typeo
 
   for (const movement of cashSession.movements ?? []) {
     const amount = Number(movement.amount);
+    const affectsCash = !movement.method || movement.method === 'CASH';
 
     if (movement.type === 'OPENING') {
       summary.opening += amount;
       summary.expected += amount;
     } else if (movement.type === 'SALE_PAYMENT') {
-      summary.sales += amount;
-      summary.expected += amount;
+      if (affectsCash) {
+        summary.sales += amount;
+        summary.expected += amount;
+      }
     } else if (movement.type === 'CASH_IN') {
-      summary.cashIn += amount;
-      summary.expected += amount;
+      if (affectsCash) {
+        summary.cashIn += amount;
+        summary.expected += amount;
+      }
     } else if (movement.type === 'CASH_OUT') {
-      summary.cashOut += amount;
-      summary.expected -= amount;
+      if (affectsCash) {
+        summary.cashOut += amount;
+        summary.expected -= amount;
+      }
     } else if (movement.type === 'REFUND') {
-      summary.refunds += amount;
-      summary.expected -= amount;
+      if (affectsCash) {
+        summary.refunds += amount;
+        summary.expected -= amount;
+      }
     } else if (movement.type === 'ADJUSTMENT') {
-      summary.adjustments += amount;
-      summary.expected += amount;
+      if (affectsCash) {
+        summary.adjustments += amount;
+        summary.expected += amount;
+      }
     }
   }
 
