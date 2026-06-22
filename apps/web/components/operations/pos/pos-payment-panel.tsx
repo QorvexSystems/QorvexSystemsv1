@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { Customer } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { formatCurrencyInput, sanitizeCurrencyInput } from './currency-input';
 import { PaymentCalculator } from './payment-calculator';
 import type { PosTotals } from './types';
 
@@ -105,13 +106,14 @@ export function PosPaymentPanel({
             </Label>
             <Input
               id="amountReceived"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
               inputMode="decimal"
+              pattern="^\\d+(\\.\\d{0,2})?$"
               value={amountReceived}
               disabled={!cashPayment}
-              onChange={(event) => onAmountReceivedChange(event.target.value)}
+              onChange={(event) => onAmountReceivedChange(sanitizeCurrencyInput(event.target.value))}
+              onBlur={(event) => onAmountReceivedChange(formatCurrencyInput(event.target.value))}
+              onFocus={(event) => event.currentTarget.select()}
               placeholder={totals.total ? totals.total.toFixed(2) : '0.00'}
               className="h-14 text-2xl font-semibold"
             />

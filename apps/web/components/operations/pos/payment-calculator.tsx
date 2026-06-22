@@ -3,6 +3,7 @@
 import { Delete, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
+import { appendCurrencyInput, backspaceCurrencyInput } from './currency-input';
 
 type PaymentCalculatorProps = {
   total: number;
@@ -15,12 +16,7 @@ const numberKeys = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '00']
 
 export function PaymentCalculator({ total, amountReceived, disabled = false, onAmountChange }: PaymentCalculatorProps) {
   function append(value: string) {
-    if (value === '.' && amountReceived.includes('.')) {
-      return;
-    }
-
-    const next = amountReceived === '0' && value !== '.' ? value : `${amountReceived}${value}`;
-    onAmountChange(next);
+    onAmountChange(appendCurrencyInput(amountReceived, value));
   }
 
   function addAmount(value: number) {
@@ -72,7 +68,7 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
           variant="outline"
           className="h-12"
           disabled={disabled}
-          onClick={() => onAmountChange(amountReceived.slice(0, -1))}
+          onClick={() => onAmountChange(backspaceCurrencyInput(amountReceived))}
         >
           <Delete className="h-4 w-4" />
         </Button>
