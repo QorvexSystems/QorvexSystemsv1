@@ -85,6 +85,7 @@ export class AuthService {
           canManageFiscalSequences: membership.canManageFiscalSequences,
           canViewCashLogs: membership.canViewCashLogs,
           canReprintReceipt: membership.canReprintReceipt,
+          canTakeOrders: membership.canTakeOrders,
         },
       })),
     };

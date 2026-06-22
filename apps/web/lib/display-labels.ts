@@ -11,6 +11,7 @@ const statusLabels: Record<string, string> = {
   DISCONTINUED: 'Descontinuado',
   OPEN: 'Abierta',
   CLOSED: 'Cerrada',
+  SENT_TO_CASHIER: 'En caja',
   DRAFT: 'Borrador',
   VALIDATING: 'Validando',
   READY: 'Listo',
@@ -52,6 +53,7 @@ const statusVariants: Record<string, BadgeVariant> = {
   DRAFT: 'outline',
   CLOSED: 'outline',
   NOT_APPLICABLE: 'outline',
+  SENT_TO_CASHIER: 'warning',
   VALIDATING: 'warning',
   ISSUED: 'warning',
   PARTIALLY_PAID: 'warning',
@@ -83,6 +85,7 @@ const roleLabels: Record<string, string> = {
   SUPER_ADMIN: 'Super admin',
   ADMIN: 'Administrador',
   CASHIER: 'Cajero',
+  ORDER_TAKER: 'Ordenanza',
 };
 
 const documentTypeLabels: Record<string, string> = {
@@ -160,6 +163,10 @@ const inventoryMovementTypeLabels: Record<string, string> = {
 const employeeActionLabels: Record<string, string> = {
   OPEN_CASH_SESSION: 'abrio caja',
   CLOSE_CASH_SESSION: 'cerro caja',
+  CREATE_SALES_ORDER: 'creo una orden',
+  SEND_SALES_ORDER_TO_CASHIER: 'envio una orden a caja',
+  COMPLETE_SALES_ORDER: 'completo una orden',
+  CANCEL_SALES_ORDER: 'cancelo una orden',
   CREATE_SALE: 'creo una venta',
   CANCEL_SALE: 'cancelo una venta',
   ISSUE_INVOICE: 'emitio factura',
@@ -188,6 +195,8 @@ const entityLabels: Record<string, string> = {
   InventoryMovement: 'Movimiento de inventario',
   Invoice: 'Factura',
   InvoiceItem: 'Linea de factura',
+  SalesOrder: 'Orden',
+  SalesOrderItem: 'Linea de orden',
   Payment: 'Pago',
   CashRegister: 'Caja fisica',
   CashSession: 'Sesion de caja',

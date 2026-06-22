@@ -22,17 +22,20 @@ import {
   Prisma,
   ProductStatus,
   Role,
+  SalesOrderStatus,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { CompleteSaleDto, PosSaleItemDto } from './dto/complete-sale.dto';
+
+const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
 
 @Injectable()
 export class PosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async searchProducts(tenantId: string, user: AuthenticatedUser, q: string) {
-    await this.ensureCanUsePos(tenantId, user);
+    await this.ensureCanCreateDirectSale(tenantId, user);
     const query = q.trim();
 
     if (!query) {
@@ -57,7 +60,7 @@ export class PosService {
   }
 
   async findByBarcode(tenantId: string, user: AuthenticatedUser, barcode: string) {
-    await this.ensureCanUsePos(tenantId, user);
+    await this.ensureCanCreateDirectSale(tenantId, user);
     const normalizedBarcode = this.normalizeBarcode(barcode);
     const product = await this.prisma.product.findFirst({
       where: {
@@ -83,8 +86,8 @@ export class PosService {
   }
 
   async previewSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
-    await this.ensureCanUsePos(tenantId, user);
-    const computed = await this.computeSale(tenantId, dto.items);
+    await this.ensureCanCreateDirectSale(tenantId, user);
+    const computed = await this.computeSale(tenantId, dto.items ?? []);
 
     return {
       documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
@@ -107,24 +110,59 @@ export class PosService {
   }
 
   async completeSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
-    await this.ensureCanUsePos(tenantId, user);
+    const membership = await this.ensureCanUsePos(tenantId, user);
 
-    if (!dto.items.length) {
-      throw new BadRequestException('Sale must include at least one item.');
+    if (!this.isAdminMembership(membership) && !dto.orderId) {
+      throw new ForbiddenException('Cashier can only charge orders sent to cashier.');
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const order = dto.orderId
+        ? await tx.salesOrder.findFirst({
+            where: {
+              id: dto.orderId,
+              tenantId,
+              status: SalesOrderStatus.SENT_TO_CASHIER,
+            },
+            include: {
+              customer: true,
+              items: true,
+            },
+          })
+        : null;
+
+      if (dto.orderId && !order) {
+        throw new NotFoundException('Pending sales order not found for tenant.');
+      }
+
+      const saleItems =
+        order?.items.map((item) => {
+          if (!item.productId) {
+            throw new BadRequestException('Sales order contains an unavailable product.');
+          }
+
+          return {
+            productId: item.productId,
+            quantity: item.quantity.toNumber(),
+          };
+        }) ?? dto.items ?? [];
+
+      if (!saleItems.length) {
+        throw new BadRequestException('Sale must include at least one item.');
+      }
+
       const documentType = dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32;
-      const customer = dto.customerId
+      const customerId = dto.customerId ?? order?.customerId ?? undefined;
+      const customer = customerId
         ? await tx.customer.findFirst({
             where: {
-              id: dto.customerId,
+              id: customerId,
               tenantId,
             },
           })
         : null;
 
-      if (dto.customerId && !customer) {
+      if (customerId && !customer) {
         throw new NotFoundException('Customer not found for tenant.');
       }
 
@@ -138,7 +176,7 @@ export class PosService {
       }
 
       const cashSession = await this.findCashSessionForSale(tx, tenantId, user.id, dto.cashSessionId);
-      const computed = await this.computeSale(tenantId, dto.items, tx);
+      const computed = await this.computeSale(tenantId, saleItems, tx);
       const sequence = await this.reserveFiscalSequence(tx, tenantId, documentType);
       const payment = this.getPaymentAmounts(dto.amountReceived, computed.total, dto.paymentMethod);
       const paidAmount = payment.paidAmount;
@@ -283,6 +321,7 @@ export class PosService {
               paymentMethod: dto.paymentMethod,
               amountReceived: payment.amountReceived.toString(),
               changeAmount: payment.changeAmount.toString(),
+              orderNumber: order?.orderNumber,
             },
           },
           {
@@ -299,10 +338,41 @@ export class PosService {
               documentType,
               amountReceived: payment.amountReceived.toString(),
               changeAmount: payment.changeAmount.toString(),
+              orderNumber: order?.orderNumber,
             },
           },
+          ...(order
+            ? [
+                {
+                  tenantId,
+                  userId: user.id,
+                  cashSessionId: cashSession.id,
+                  action: EmployeeLogAction.COMPLETE_SALES_ORDER,
+                  entity: 'SalesOrder',
+                  entityId: order.id,
+                  invoiceId: invoice.id,
+                  amount: computed.total,
+                  metadata: {
+                    orderNumber: order.orderNumber,
+                    invoiceNumber,
+                  },
+                },
+              ]
+            : []),
         ],
       });
+
+      if (order) {
+        await tx.salesOrder.update({
+          where: { id: order.id },
+          data: {
+            status: SalesOrderStatus.COMPLETED,
+            completedById: user.id,
+            invoiceId: invoice.id,
+            completedAt: issuedAt,
+          },
+        });
+      }
 
       await tx.electronicDocument.create({
         data: {
@@ -482,13 +552,23 @@ export class PosService {
     return session;
   }
 
+  private async ensureCanCreateDirectSale(tenantId: string, user: AuthenticatedUser) {
+    const membership = await this.ensureCanUsePos(tenantId, user);
+
+    if (!this.isAdminMembership(membership)) {
+      throw new ForbiddenException('Only admins can create direct POS sales.');
+    }
+
+    return membership;
+  }
+
   private async ensureCanUsePos(tenantId: string, user: AuthenticatedUser) {
     const membership = user.memberships.find((candidate) => candidate.tenantId === tenantId);
 
     if (
       !membership ||
       (!membership.canUsePos &&
-        !([Role.ADMIN, Role.CASHIER, Role.SUPER_ADMIN] as Role[]).includes(membership.role))
+        !([...adminRoles, Role.CASHIER].includes(membership.role)))
     ) {
       throw new ForbiddenException('Employee does not have POS access.');
     }
@@ -507,6 +587,12 @@ export class PosService {
         throw new ForbiddenException('Employee profile must be active to use POS.');
       }
     }
+
+    return membership;
+  }
+
+  private isAdminMembership(membership: AuthenticatedUser['memberships'][number]) {
+    return adminRoles.includes(membership.role);
   }
 
   private getPaymentAmounts(

@@ -11,9 +11,17 @@ type PosCartProps = {
   items: CartItem[];
   onUpdateQuantity: (productId: string, quantity: number) => void;
   onClear: () => void;
+  readOnly?: boolean;
+  emptyMessage?: string;
 };
 
-export function PosCart({ items, onUpdateQuantity, onClear }: PosCartProps) {
+export function PosCart({
+  items,
+  onUpdateQuantity,
+  onClear,
+  readOnly = false,
+  emptyMessage = 'Agrega productos desde la izquierda o escanea un codigo para empezar.',
+}: PosCartProps) {
   return (
     <div className="rounded-md border border-zinc-200 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b border-zinc-200 p-4">
@@ -21,9 +29,11 @@ export function PosCart({ items, onUpdateQuantity, onClear }: PosCartProps) {
           <h2 className="text-base font-semibold text-zinc-950">Carrito</h2>
           <p className="text-xs text-muted-foreground">{items.length} linea(s) agregada(s)</p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={!items.length}>
-          Limpiar
-        </Button>
+        {!readOnly ? (
+          <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={!items.length}>
+            Limpiar
+          </Button>
+        ) : null}
       </div>
 
       <div className="max-h-[26rem] space-y-2 overflow-y-auto p-3">
@@ -49,41 +59,47 @@ export function PosCart({ items, onUpdateQuantity, onClear }: PosCartProps) {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-zinc-950">{formatCurrency(subtotal)}</p>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onUpdateQuantity(item.product.id, 0)}
-                      aria-label="Quitar producto"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onUpdateQuantity(item.product.id, 0)}
+                        aria-label="Quitar producto"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="mt-3 flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
-                    aria-label="Reducir cantidad"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </Button>
+                  {!readOnly ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
+                      aria-label="Reducir cantidad"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   <span className="h-9 w-12 rounded-md border border-zinc-200 bg-white text-center text-sm font-semibold leading-9">
                     {item.quantity}
                   </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
-                    disabled={item.product.trackInventory && item.quantity >= item.product.stock}
-                    aria-label="Aumentar cantidad"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  {!readOnly ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
+                      disabled={item.product.trackInventory && item.quantity >= item.product.stock}
+                      aria-label="Aumentar cantidad"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   <span className="text-xs text-muted-foreground">
                     Stock: {item.product.trackInventory ? item.product.stock : 'No aplica'}
                   </span>
@@ -93,7 +109,7 @@ export function PosCart({ items, onUpdateQuantity, onClear }: PosCartProps) {
           })
         ) : (
           <div className="rounded-md border border-dashed border-zinc-300 bg-white p-5 text-center text-sm text-muted-foreground">
-            Agrega productos desde la izquierda o escanea un codigo para empezar.
+            {emptyMessage}
           </div>
         )}
       </div>

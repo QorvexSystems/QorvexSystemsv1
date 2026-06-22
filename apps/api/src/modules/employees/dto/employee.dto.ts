@@ -62,6 +62,10 @@ export class EmployeePermissionsDto {
   @IsOptional()
   @IsBoolean()
   canReprintReceipt?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canTakeOrders?: boolean;
 }
 
 export class CreateEmployeeDto extends EmployeePermissionsDto {

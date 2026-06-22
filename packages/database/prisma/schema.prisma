@@ -35,6 +35,7 @@ enum Role {
   SUPER_ADMIN
   ADMIN
   CASHIER
+  ORDER_TAKER
   QORVEX_SUPER_ADMIN
 }
 
@@ -90,6 +91,12 @@ enum PaymentStatus {
   PENDING
   COMPLETED
   FAILED
+  CANCELLED
+}
+
+enum SalesOrderStatus {
+  SENT_TO_CASHIER
+  COMPLETED
   CANCELLED
 }
 
@@ -193,6 +200,10 @@ enum CashMovementType {
 enum EmployeeLogAction {
   OPEN_CASH_SESSION
   CLOSE_CASH_SESSION
+  CREATE_SALES_ORDER
+  SEND_SALES_ORDER_TO_CASHIER
+  COMPLETE_SALES_ORDER
+  CANCEL_SALES_ORDER
   CREATE_SALE
   CANCEL_SALE
   ISSUE_INVOICE
@@ -272,6 +283,7 @@ model Tenant {
   cashSessions        CashSession[]
   cashMovements       CashMovement[]
   employeeActivityLogs EmployeeActivityLog[]
+  salesOrders         SalesOrder[]
   fiscalSequences     FiscalSequence[]
   importBatches       ImportBatch[]
 
@@ -307,6 +319,8 @@ model User {
   invoicesIssued Invoice[] @relation("InvoiceIssuedBy")
   inventoryMovementsCreated InventoryMovement[] @relation("InventoryMovementCreatedBy")
   payments Payment[]
+  salesOrdersCreated SalesOrder[] @relation("SalesOrderCreatedBy")
+  salesOrdersCompleted SalesOrder[] @relation("SalesOrderCompletedBy")
   cashSessionsOpened CashSession[] @relation("CashSessionOpenedBy")
   cashSessionsClosed CashSession[] @relation("CashSessionClosedBy")
   cashMovements CashMovement[]
@@ -336,6 +350,7 @@ model Membership {
   canManageFiscalSequences Boolean @default(false)
   canViewCashLogs Boolean @default(false)
   canReprintReceipt Boolean @default(false)
+  canTakeOrders Boolean @default(false)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -360,6 +375,7 @@ model Customer {
   updatedAt      DateTime       @updatedAt
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoices       Invoice[]
+  salesOrders    SalesOrder[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -416,6 +432,7 @@ model Product {
   category           ProductCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   inventoryMovements InventoryMovement[]
   invoiceItems       InvoiceItem[]
+  salesOrderItems    SalesOrderItem[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -488,6 +505,7 @@ model Invoice {
   inventoryMovements  InventoryMovement[]
   cashMovements       CashMovement[]
   employeeActivityLogs EmployeeActivityLog[]
+  salesOrder          SalesOrder?
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
@@ -515,6 +533,59 @@ model InvoiceItem {
   product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
+  @@index([productId])
+}
+
+model SalesOrder {
+  id              String           @id @default(cuid())
+  tenantId        String
+  customerId      String?
+  orderNumber     String
+  status          SalesOrderStatus @default(SENT_TO_CASHIER)
+  subtotal        Decimal          @default(0) @db.Decimal(12, 2)
+  taxTotal        Decimal          @default(0) @db.Decimal(12, 2)
+  total           Decimal          @default(0) @db.Decimal(12, 2)
+  notes           String?
+  createdById     String
+  completedById   String?
+  invoiceId       String?          @unique
+  sentToCashierAt DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdBy       User             @relation("SalesOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy     User?            @relation("SalesOrderCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  invoice         Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  items           SalesOrderItem[]
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([createdById])
+  @@index([completedById])
+}
+
+model SalesOrderItem {
+  id           String     @id @default(cuid())
+  salesOrderId String
+  productId    String?
+  sku          String?
+  barcode      String?
+  description  String
+  quantity     Decimal    @db.Decimal(12, 2)
+  unitPrice    Decimal    @db.Decimal(12, 2)
+  taxRate      Decimal    @db.Decimal(5, 4)
+  taxTotal     Decimal    @default(0) @db.Decimal(12, 2)
+  subtotal     Decimal    @db.Decimal(12, 2)
+  total        Decimal    @db.Decimal(12, 2)
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product      Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([salesOrderId])
   @@index([productId])
 }
 

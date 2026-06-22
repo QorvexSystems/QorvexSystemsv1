@@ -45,6 +45,7 @@ export function EmployeeDetail({ employeeId }: { employeeId: string }) {
               <div className="flex flex-wrap gap-2">
                 <Badge variant={getStatusVariant(employee.status)}>{translateStatus(employee.status)}</Badge>
                 {membership?.canUsePos ? <Badge variant="success">Usar caja</Badge> : null}
+                {membership?.role === 'ORDER_TAKER' ? <Badge variant="success">Tomar ordenes</Badge> : null}
                 {membership?.canOpenCashSession ? <Badge variant="outline">Abrir caja</Badge> : null}
                 {membership?.canManageProducts ? <Badge variant="outline">Productos</Badge> : null}
                 {membership?.canManageEmployees ? <Badge variant="outline">Empleados</Badge> : null}

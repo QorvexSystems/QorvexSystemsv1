@@ -42,8 +42,13 @@ export class CompleteSaleDto {
   @IsString()
   cashSessionId?: string;
 
+  @IsOptional()
+  @IsString()
+  orderId?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PosSaleItemDto)
-  items: PosSaleItemDto[];
+  items?: PosSaleItemDto[];
 }

@@ -18,6 +18,7 @@ export type AuthenticatedMembership = {
   canManageFiscalSequences: boolean;
   canViewCashLogs: boolean;
   canReprintReceipt: boolean;
+  canTakeOrders: boolean;
 };
 
 export type AuthenticatedUser = {

@@ -31,6 +31,7 @@ const permissionKeys = [
   'canManageFiscalSequences',
   'canViewCashLogs',
   'canReprintReceipt',
+  'canTakeOrders',
 ] as const;
 
 @Injectable()
@@ -106,7 +107,7 @@ export class EmployeesService {
           userId: user.id,
           role: dto.role,
           status: MembershipStatus.ACTIVE,
-          ...this.pickPermissions(dto),
+          ...this.pickPermissions(dto, dto.role),
         },
       });
 
@@ -238,7 +239,7 @@ export class EmployeesService {
               : dto.status
                 ? MembershipStatus.INACTIVE
                 : undefined,
-          ...this.pickPermissions(dto),
+          ...this.pickPermissions(dto, dto.role ?? membership.role),
         },
       });
 
@@ -382,6 +383,7 @@ export class EmployeesService {
         [
           Role.ADMIN,
           Role.CASHIER,
+          Role.ORDER_TAKER,
         ] as Role[]
       ).includes(role)
     ) {
@@ -404,14 +406,44 @@ export class EmployeesService {
     }
   }
 
-  private pickPermissions(dto: CreateEmployeeDto | UpdateEmployeeDto) {
-    return permissionKeys.reduce<Partial<Record<(typeof permissionKeys)[number], boolean>>>((data, key) => {
+  private pickPermissions(dto: CreateEmployeeDto | UpdateEmployeeDto, role?: Role) {
+    const data = permissionKeys.reduce<Partial<Record<(typeof permissionKeys)[number], boolean>>>((permissions, key) => {
       if (dto[key] !== undefined) {
-        data[key] = dto[key];
+        permissions[key] = dto[key];
       }
 
-      return data;
+      return permissions;
     }, {});
+
+    if (role === Role.ORDER_TAKER) {
+      return {
+        ...this.blankPermissions(),
+        canTakeOrders: true,
+      };
+    }
+
+    if (role === Role.CASHIER) {
+      return {
+        ...data,
+        canTakeOrders: false,
+      };
+    }
+
+    if (role === Role.ADMIN) {
+      return {
+        ...data,
+        canTakeOrders: true,
+      };
+    }
+
+    return data;
+  }
+
+  private blankPermissions() {
+    return permissionKeys.reduce<Record<(typeof permissionKeys)[number], boolean>>((data, key) => {
+      data[key] = false;
+      return data;
+    }, {} as Record<(typeof permissionKeys)[number], boolean>);
   }
 
   private membershipSelect() {
@@ -432,6 +464,7 @@ export class EmployeesService {
       canManageFiscalSequences: true,
       canViewCashLogs: true,
       canReprintReceipt: true,
+      canTakeOrders: true,
     };
   }
 }

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { login } from '@/lib/api';
 import { getSession, saveSession } from '@/lib/auth-session';
+import { canAccessPath, getDefaultPathForSession } from '@/lib/authorization';
 
 const loginSchema = z.object({
   email: z.string().email('Ingresa un correo valido.'),
@@ -42,8 +43,9 @@ export default function LoginPage() {
     const safeNextPath = getSafeNextPath(params.get('next'));
     setNextPath(safeNextPath);
 
-    if (getSession()) {
-      router.replace(safeNextPath);
+    const currentSession = getSession();
+    if (currentSession) {
+      router.replace(canAccessPath(currentSession, safeNextPath) ? safeNextPath : getDefaultPathForSession(currentSession));
     }
   }, [router]);
 
@@ -52,8 +54,8 @@ export default function LoginPage() {
 
     try {
       const response = await login(values.email, values.password);
-      saveSession(response);
-      router.push(nextPath);
+      const session = saveSession(response);
+      router.push(canAccessPath(session, nextPath) ? nextPath : getDefaultPathForSession(session));
     } catch {
       setLoginError('No pudimos iniciar sesion con esas credenciales.');
     }

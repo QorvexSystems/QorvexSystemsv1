@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, DoorClosed, DoorOpen, Search, ShieldCheck, Store } from 'lucide-react';
+import { CalendarClock, ClipboardCheck, DoorClosed, DoorOpen, Search, ShieldCheck, Store } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -18,13 +18,16 @@ import {
   getCurrentCashSession,
   getCustomers,
   getPosProductByBarcode,
+  getSalesOrders,
   openCashSession,
   searchPosProducts,
   type Invoice,
   type Product,
+  type SalesOrder,
 } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { isAdminSession } from '@/lib/authorization';
+import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
 import { PosCart } from './pos/pos-cart';
@@ -68,6 +71,7 @@ export function PosView() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
+  const [loadedOrder, setLoadedOrder] = useState<SalesOrder | null>(null);
 
   const customersQuery = useQuery({
     queryKey: ['pos-customers', session?.tenantId],
@@ -89,9 +93,15 @@ export function PosView() {
     queryFn: () => getCashSessions(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session && isAdminSession(session)),
   });
+  const canCreateDirectSale = isAdminSession(session);
   const productsQuery = useQuery({
     queryKey: ['pos-products-search', session?.tenantId, search],
     queryFn: () => searchPosProducts(session?.tenantId ?? '', session?.accessToken ?? '', search || 'RIV'),
+    enabled: Boolean(session && currentSessionQuery.data && canCreateDirectSale),
+  });
+  const pendingOrdersQuery = useQuery({
+    queryKey: ['sales-orders', session?.tenantId, 'SENT_TO_CASHIER', 'pos'],
+    queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'SENT_TO_CASHIER'),
     enabled: Boolean(session && currentSessionQuery.data),
   });
 
@@ -99,6 +109,7 @@ export function PosView() {
   const canUsePos = session?.permissions.canUsePos ?? ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
   const canOpenCashSession = session?.permissions.canOpenCashSession ?? ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
   const canCloseCashSession = session?.permissions.canCloseCashSession ?? ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
+  const cartReadOnly = !canCreateDirectSale && Boolean(loadedOrder);
 
   useEffect(() => {
     const firstRegister = registersQuery.data?.find((register) => register.status === 'ACTIVE');
@@ -108,11 +119,11 @@ export function PosView() {
   }, [registersQuery.data, selectedRegisterId]);
 
   useEffect(() => {
-    if (currentCashSession) {
+    if (currentCashSession && canCreateDirectSale) {
       setScannerEnabled(true);
       window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
     }
-  }, [currentCashSession?.id]);
+  }, [canCreateDirectSale, currentCashSession?.id]);
 
   useEffect(() => {
     if (scannerEnabled) {
@@ -159,7 +170,7 @@ export function PosView() {
     .filter((product) => categoryFilter === 'ALL' || product.category?.name === categoryFilter)
     .filter((product) => brandFilter === 'ALL' || product.brand === brandFilter);
   const quantitiesByProduct = Object.fromEntries(cart.map((item) => [item.product.id, item.quantity]));
-  const canCompleteSale = cart.length > 0 && Boolean(currentCashSession);
+  const canCompleteSale = cart.length > 0 && Boolean(currentCashSession) && (canCreateDirectSale || Boolean(loadedOrder));
   const selectedOpenSession = (cashSessionsQuery.data ?? []).find(
     (cashSession) => cashSession.status === 'OPEN' && cashSession.cashRegister.id === selectedRegisterId,
   );
@@ -248,6 +259,7 @@ export function PosView() {
         paymentMethod,
         cashSessionId: currentCashSession?.id,
         amountReceived: amountReceived ? Number(amountReceived) : undefined,
+        orderId: loadedOrder?.id,
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
@@ -258,8 +270,10 @@ export function PosView() {
       setMessage(`Factura ${invoice.invoiceNumber} creada correctamente.`);
       setLastInvoice(invoice);
       setCart([]);
+      setLoadedOrder(null);
       setAmountReceived('');
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       await queryClient.invalidateQueries({ queryKey: ['products'] });
       await queryClient.invalidateQueries({ queryKey: ['inventory-movements'] });
@@ -287,7 +301,14 @@ export function PosView() {
   }
 
   function addProduct(product: Product) {
+    if (!canCreateDirectSale) {
+      setMessage('El cajero solo puede cobrar ordenes enviadas a caja.');
+      return;
+    }
+
     const currentQuantity = quantitiesByProduct[product.id] ?? 0;
+
+    unlinkLoadedOrderIfNeeded();
 
     if (!canAddProduct(product, currentQuantity)) {
       setMessage(`No hay stock disponible para ${product.name}.`);
@@ -310,6 +331,12 @@ export function PosView() {
   }
 
   function updateQuantity(productId: string, quantity: number) {
+    if (!canCreateDirectSale) {
+      setMessage('El cajero no puede modificar una orden enviada a caja.');
+      return;
+    }
+
+    unlinkLoadedOrderIfNeeded();
     setCart((current) =>
       current
         .map((item) => {
@@ -325,6 +352,39 @@ export function PosView() {
         })
         .filter((item) => item.quantity > 0),
     );
+  }
+
+  function clearCart() {
+    if (!canCreateDirectSale && loadedOrder) {
+      setMessage('El cajero no puede limpiar una orden enviada a caja. Carga otra orden si necesitas cambiarla.');
+      return;
+    }
+
+    setLoadedOrder(null);
+    setCart([]);
+  }
+
+  function unlinkLoadedOrderIfNeeded() {
+    if (loadedOrder) {
+      setLoadedOrder(null);
+      setMessage('Orden desvinculada por edicion manual. Esta venta se cobrara como venta directa.');
+    }
+  }
+
+  function loadSalesOrder(order: SalesOrder) {
+    const items = order.items
+      .map((item) => (item.product ? { product: item.product, quantity: Number(item.quantity) } : null))
+      .filter((item): item is CartItem => Boolean(item));
+
+    if (items.length !== order.items.length) {
+      toast.error('La orden tiene productos no disponibles. Revisa la orden antes de cobrar.');
+      return;
+    }
+
+    setLoadedOrder(order);
+    setCustomerId(order.customerId ?? '');
+    setCart(items);
+    setMessage(`Orden ${order.orderNumber} cargada para cobrar.`);
   }
 
   function enableScanner() {
@@ -409,7 +469,7 @@ export function PosView() {
     <div className="space-y-5">
       <ModuleHeader
         title="Caja"
-        description="Ventas rapidas, lector de codigos, cobro y cierre de Ferreteria RIVNU."
+        description="Cobro de ordenes enviadas a caja y cierre operativo de Ferreteria RIVNU."
       />
 
       <CashStatusHeader
@@ -443,82 +503,107 @@ export function PosView() {
       ) : (
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(24rem,0.8fr)] xl:items-start">
           <div className="space-y-4">
-            <Card className="border-zinc-200 bg-zinc-50">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <CardTitle>Productos</CardTitle>
-                    <CardDescription>Busca por tipo, proveedor, nombre, SKU o codigo.</CardDescription>
-                  </div>
-                  {lastScannedProduct ? (
-                    <Badge variant="success">Ultimo escaneo: {lastScannedProduct.name}</Badge>
-                  ) : null}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <BarcodeInput
-                  barcode={barcode}
-                  scannerEnabled={scannerEnabled}
-                  cameraActive={cameraActive}
-                  scannerMessage={scannerMessage}
-                  barcodeInputRef={barcodeInputRef}
-                  videoRef={videoRef}
-                  isPending={barcodeMutation.isPending}
-                  onBarcodeChange={setBarcode}
-                  onSubmit={(code) => barcodeMutation.mutate(code)}
-                  onEnableScanner={enableScanner}
-                  onDisableScanner={disableScanner}
-                  onStartCamera={startCameraScan}
-                />
-
-                <div className="grid gap-3 md:grid-cols-[1.2fr_0.9fr_0.9fr]">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      className="bg-white pl-9"
-                      placeholder="Buscar producto"
-                    />
-                  </div>
-                  <select
-                    value={categoryFilter}
-                    onChange={(event) => setCategoryFilter(event.target.value)}
-                    className="h-10 rounded-md border border-input bg-white px-3 text-sm"
-                  >
-                    <option value="ALL">Todos los tipos</option>
-                    {categories.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={brandFilter}
-                    onChange={(event) => setBrandFilter(event.target.value)}
-                    className="h-10 rounded-md border border-input bg-white px-3 text-sm"
-                  >
-                    <option value="ALL">Marca/proveedor</option>
-                    {brands.map((brand) => (
-                      <option key={brand} value={brand}>
-                        {brand}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
-            <PosProductGrid
-              products={filteredProducts}
-              quantitiesByProduct={quantitiesByProduct}
-              isLoading={productsQuery.isLoading}
-              onAddProduct={addProduct}
+            <SalesOrdersQueuePanel
+              orders={pendingOrdersQuery.data ?? []}
+              loading={pendingOrdersQuery.isLoading}
+              loadedOrderId={loadedOrder?.id}
+              onLoad={loadSalesOrder}
             />
+            {canCreateDirectSale ? (
+              <>
+                <Card className="border-zinc-200 bg-zinc-50">
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <CardTitle>Venta directa</CardTitle>
+                        <CardDescription>Disponible solo para administradores.</CardDescription>
+                      </div>
+                      {lastScannedProduct ? (
+                        <Badge variant="success">Ultimo escaneo: {lastScannedProduct.name}</Badge>
+                      ) : null}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <BarcodeInput
+                      barcode={barcode}
+                      scannerEnabled={scannerEnabled}
+                      cameraActive={cameraActive}
+                      scannerMessage={scannerMessage}
+                      barcodeInputRef={barcodeInputRef}
+                      videoRef={videoRef}
+                      isPending={barcodeMutation.isPending}
+                      onBarcodeChange={setBarcode}
+                      onSubmit={(code) => barcodeMutation.mutate(code)}
+                      onEnableScanner={enableScanner}
+                      onDisableScanner={disableScanner}
+                      onStartCamera={startCameraScan}
+                    />
+
+                    <div className="grid gap-3 md:grid-cols-[1.2fr_0.9fr_0.9fr]">
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                          className="bg-white pl-9"
+                          placeholder="Buscar producto"
+                        />
+                      </div>
+                      <select
+                        value={categoryFilter}
+                        onChange={(event) => setCategoryFilter(event.target.value)}
+                        className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+                      >
+                        <option value="ALL">Todos los tipos</option>
+                        {categories.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={brandFilter}
+                        onChange={(event) => setBrandFilter(event.target.value)}
+                        className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+                      >
+                        <option value="ALL">Marca/proveedor</option>
+                        {brands.map((brand) => (
+                          <option key={brand} value={brand}>
+                            {brand}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <PosProductGrid
+                  products={filteredProducts}
+                  quantitiesByProduct={quantitiesByProduct}
+                  isLoading={productsQuery.isLoading}
+                  onAddProduct={addProduct}
+                />
+              </>
+            ) : null}
           </div>
 
           <div className="space-y-3 xl:sticky xl:top-24">
-            <PosCart items={cart} onUpdateQuantity={updateQuantity} onClear={() => setCart([])} />
+            {loadedOrder ? (
+              <div className="rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05]">
+                Cobrando orden {loadedOrder.orderNumber}. Si editas el carrito, se cobrara como venta directa.
+              </div>
+            ) : null}
+            <PosCart
+              items={cart}
+              onUpdateQuantity={updateQuantity}
+              onClear={clearCart}
+              readOnly={cartReadOnly}
+              emptyMessage={
+                canCreateDirectSale
+                  ? undefined
+                  : 'Carga una orden pendiente desde la lista para poder cobrarla.'
+              }
+            />
             <PosPaymentPanel
               customers={activeCustomers}
               customerId={customerId}
@@ -552,6 +637,69 @@ export function PosView() {
         </section>
       )}
     </div>
+  );
+}
+
+function SalesOrdersQueuePanel({
+  orders,
+  loading,
+  loadedOrderId,
+  onLoad,
+}: {
+  orders: SalesOrder[];
+  loading: boolean;
+  loadedOrderId?: string;
+  onLoad: (order: SalesOrder) => void;
+}) {
+  return (
+    <Card className="border-zinc-200">
+      <CardHeader className="pb-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Ordenes enviadas a caja</CardTitle>
+            <CardDescription>Selecciona una orden pendiente para cargarla en el carrito.</CardDescription>
+          </div>
+          <Badge variant={orders.length ? 'warning' : 'outline'}>{orders.length} pendiente(s)</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">Cargando ordenes...</p>
+        ) : orders.length ? (
+          <div className="grid gap-2 lg:grid-cols-2">
+            {orders.map((order) => (
+              <div key={order.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
+                      <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {order.customer?.name ?? 'Consumidor final'} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">Creada por {order.createdBy.name}</p>
+                  </div>
+                  <p className="shrink-0 text-sm font-bold">{formatCurrency(Number(order.total))}</p>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">{order.items.length} producto(s)</span>
+                  <Button type="button" size="sm" onClick={() => onLoad(order)} disabled={loadedOrderId === order.id}>
+                    <ClipboardCheck className="h-4 w-4" />
+                    {loadedOrderId === order.id ? 'Cargada' : 'Cargar'}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
+            <ClipboardCheck className="mx-auto h-6 w-6 text-muted-foreground" />
+            <p className="mt-2 text-sm text-muted-foreground">No hay ordenes pendientes de cobro.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -78,6 +78,7 @@ export function EmployeesView() {
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {membership?.canUsePos ? <Badge variant="success">Usar caja</Badge> : null}
+                        {membership?.role === 'ORDER_TAKER' ? <Badge variant="success">Tomar ordenes</Badge> : null}
                         {membership?.canOpenCashSession ? <Badge variant="outline">Abrir caja</Badge> : null}
                         {membership?.canManageProducts ? <Badge variant="outline">Productos</Badge> : null}
                         {membership?.canManageEmployees ? <Badge variant="outline">Empleados</Badge> : null}

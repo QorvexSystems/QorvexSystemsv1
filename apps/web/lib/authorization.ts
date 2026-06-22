@@ -6,6 +6,13 @@ export function isAdminSession(session: AuthSession | null | undefined) {
   return Boolean(session?.role && adminRoles.includes(session.role));
 }
 
+export function canTakeOrders(session: AuthSession | null | undefined) {
+  return Boolean(
+    isAdminSession(session) ||
+      session?.role === 'ORDER_TAKER',
+  );
+}
+
 export function canAccessPath(session: AuthSession | null | undefined, pathname: string) {
   if (!session) {
     return false;
@@ -19,9 +26,33 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
     return true;
   }
 
+  if (canTakeOrders(session) && (pathname === '/orders' || pathname.startsWith('/orders/'))) {
+    return true;
+  }
+
   return Boolean(
     session.permissions.canReprintReceipt &&
       pathname.startsWith('/invoices/') &&
       pathname.endsWith('/print'),
   );
+}
+
+export function getDefaultPathForSession(session: AuthSession | null | undefined) {
+  if (!session) {
+    return '/login';
+  }
+
+  if (isAdminSession(session)) {
+    return '/dashboard';
+  }
+
+  if (canTakeOrders(session)) {
+    return '/orders';
+  }
+
+  if (session.permissions.canUsePos) {
+    return '/pos';
+  }
+
+  return '/dashboard';
 }

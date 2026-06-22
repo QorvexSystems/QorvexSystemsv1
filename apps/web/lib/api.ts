@@ -191,6 +191,67 @@ export type PosSalePayload = {
   paymentMethod: string;
   amountReceived?: number;
   cashSessionId?: string;
+  orderId?: string;
+  items?: Array<{
+    productId: string;
+    quantity: number;
+  }>;
+};
+
+export type SalesOrder = {
+  id: string;
+  tenantId: string;
+  customerId: string | null;
+  orderNumber: string;
+  status: string;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  notes: string | null;
+  createdById: string;
+  completedById: string | null;
+  invoiceId: string | null;
+  sentToCashierAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: Customer | null;
+  createdBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  completedBy: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    total: string;
+  } | null;
+  items: Array<{
+    id: string;
+    salesOrderId: string;
+    productId: string | null;
+    sku: string | null;
+    barcode: string | null;
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    taxRate: string;
+    taxTotal: string;
+    subtotal: string;
+    total: string;
+    product: Product | null;
+  }>;
+};
+
+export type CreateSalesOrderPayload = {
+  customerId?: string;
+  notes?: string;
   items: Array<{
     productId: string;
     quantity: number;
@@ -228,6 +289,7 @@ export type Employee = {
       canManageFiscalSequences: boolean;
       canViewCashLogs: boolean;
       canReprintReceipt: boolean;
+      canTakeOrders: boolean;
     }>;
   };
 };
@@ -416,9 +478,31 @@ const apiMessageTranslations: Record<string, string> = {
     'Debes abrir una caja con tu usuario antes de completar ventas.',
   'Employee does not have POS access.': 'Tu usuario no tiene permiso para usar la caja.',
   'Employee profile must be active to use POS.': 'El perfil del empleado debe estar activo para usar el POS.',
+  'Cashier can only charge orders sent to cashier.':
+    'El cajero solo puede cobrar ordenes enviadas a caja.',
+  'Only admins can create direct POS sales.':
+    'Solo el administrador puede crear ventas directas desde el POS.',
   'Amount received cannot be negative.': 'El monto recibido no puede ser negativo.',
   'Cash received must cover the invoice total.': 'El efectivo recibido debe cubrir el total de la factura.',
   'Payment amount must cover the invoice total.': 'El monto pagado debe cubrir el total de la factura.',
+  'Sales order must include at least one item.': 'La orden debe incluir al menos un producto.',
+  'Pending sales order not found for tenant.': 'Orden pendiente no encontrada en esta empresa.',
+  'Sales order not found for tenant.': 'Orden no encontrada en esta empresa.',
+  'Sales order contains an unavailable product.': 'La orden contiene un producto no disponible.',
+  'One or more order products do not belong to tenant.':
+    'Uno o mas productos de la orden no pertenecen a esta empresa.',
+  'Invalid sales order status.': 'Estado de orden invalido.',
+  'Employee does not have permission to take orders.':
+    'Tu usuario no tiene permiso para tomar ordenes.',
+  'Employee does not have permission to view sales orders.':
+    'Tu usuario no tiene permiso para ver ordenes.',
+  'Employee does not have permission to view this sales order.':
+    'Tu usuario no tiene permiso para ver esta orden.',
+  'Employee does not have permission to cancel this sales order.':
+    'Tu usuario no tiene permiso para cancelar esta orden.',
+  'Employee profile must be active to take orders.':
+    'El perfil del empleado debe estar activo para tomar ordenes.',
+  'Only pending sales orders can be cancelled.': 'Solo las ordenes pendientes pueden cancelarse.',
   'Could not generate a unique barcode.': 'No se pudo generar un codigo de barras unico.',
   'Product must have a barcode before printing labels.':
     'El producto debe tener codigo de barras antes de imprimir etiquetas.',
@@ -569,6 +653,50 @@ export function searchPosProducts(tenantId: string, accessToken: string, q: stri
 
 export function getPosProductByBarcode(tenantId: string, accessToken: string, barcode: string) {
   return fetchJson<Product>(`/pos/products/barcode/${encodeURIComponent(barcode)}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getSalesOrders(tenantId: string, accessToken: string, status?: string) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return fetchJson<SalesOrder[]>(`/orders${query}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  payload: CreateSalesOrderPayload,
+) {
+  return fetchJson<SalesOrder>('/orders', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/cancel`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function searchOrderProducts(tenantId: string, accessToken: string, q: string) {
+  return fetchJson<Product[]>(`/orders/products/search?q=${encodeURIComponent(q)}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getOrderProductByBarcode(tenantId: string, accessToken: string, barcode: string) {
+  return fetchJson<Product>(`/orders/products/barcode/${encodeURIComponent(barcode)}`, {
     headers: tenantHeaders(tenantId, accessToken),
   });
 }
