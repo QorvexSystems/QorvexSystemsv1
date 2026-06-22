@@ -11,5 +11,6 @@ coverage
 *.tsbuildinfo
 .turbo
 .tmp
+.dev-logs/
 .DS_Store
 packages/database/generated
