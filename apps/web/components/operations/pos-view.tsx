@@ -31,6 +31,7 @@ import { isAdminSession } from '@/lib/authorization';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
+import { clearCurrencyInput } from './pos/currency-input';
 import { PosCart } from './pos/pos-cart';
 import { PosPaymentPanel } from './pos/pos-payment-panel';
 import { PosProductGrid } from './pos/pos-product-grid';
@@ -58,7 +59,7 @@ export function PosView() {
   const [customerId, setCustomerId] = useState('');
   const [documentType, setDocumentType] = useState('CONSUMER_ELECTRONIC_32');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
-  const [amountReceived, setAmountReceived] = useState('');
+  const [amountReceived, setAmountReceived] = useState(clearCurrencyInput());
   const [barcode, setBarcode] = useState('');
   const [scannerEnabled, setScannerEnabled] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -207,6 +208,7 @@ export function PosView() {
     onSuccess: async () => {
       setMessage('Caja abierta correctamente.');
       toast.success('Caja abierta correctamente.');
+      setAmountReceived(clearCurrencyInput());
       await invalidateCashQueries();
     },
     onError: (error) => {
@@ -292,7 +294,7 @@ export function PosView() {
       setMessage(`Factura ${invoice.invoiceNumber} creada correctamente.`);
       setCart([]);
       setLoadedOrder(null);
-      setAmountReceived('');
+      setAmountReceived(clearCurrencyInput());
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
       await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });

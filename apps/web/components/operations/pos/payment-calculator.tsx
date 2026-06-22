@@ -3,7 +3,7 @@
 import { Delete, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
-import { appendCurrencyInput, backspaceCurrencyInput } from './currency-input';
+import { appendCurrencyInput, backspaceCurrencyInput, clearCurrencyInput } from './currency-input';
 
 type PaymentCalculatorProps = {
   total: number;
@@ -12,7 +12,7 @@ type PaymentCalculatorProps = {
   onAmountChange: (value: string) => void;
 };
 
-const numberKeys = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '00'];
+const numberKeys = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '00', '0'];
 
 export function PaymentCalculator({ total, amountReceived, disabled = false, onAmountChange }: PaymentCalculatorProps) {
   function append(value: string) {
@@ -76,7 +76,7 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
           type="button"
           variant="outline"
           disabled={disabled}
-          onClick={() => onAmountChange('')}
+          onClick={() => onAmountChange(clearCurrencyInput())}
           className="col-span-2 h-12 text-base font-semibold"
         >
           <RotateCcw className="h-4 w-4" />
@@ -97,6 +97,9 @@ export function PaymentCalculator({ total, amountReceived, disabled = false, onA
             {key}
           </Button>
         ))}
+        <Button type="button" variant="outline" className="h-14 text-lg font-semibold" disabled>
+          .00
+        </Button>
       </div>
     </div>
   );
