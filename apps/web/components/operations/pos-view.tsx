@@ -31,7 +31,7 @@ import { isAdminSession } from '@/lib/authorization';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
-import { clearCurrencyInput } from './pos/currency-input';
+import { clearCurrencyInput, formatCurrencyInput, sanitizeCurrencyInput } from './pos/currency-input';
 import { PosCart } from './pos/pos-cart';
 import { PosPaymentPanel } from './pos/pos-payment-panel';
 import { PosProductGrid } from './pos/pos-product-grid';
@@ -70,7 +70,7 @@ export function PosView() {
   const [brandFilter, setBrandFilter] = useState('ALL');
   const [selectedRegisterId, setSelectedRegisterId] = useState('');
   const [openingAmount, setOpeningAmount] = useState('5000');
-  const [closingAmount, setClosingAmount] = useState('');
+  const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loadedOrder, setLoadedOrder] = useState<SalesOrder | null>(null);
@@ -232,9 +232,9 @@ export function PosView() {
     onSuccess: async () => {
       setMessage('Caja cerrada correctamente.');
       toast.success('Caja cerrada correctamente.');
-      setClosingAmount('');
+      setClosingAmount(clearCurrencyInput());
       setCart([]);
-      setAmountReceived('');
+      setAmountReceived(clearCurrencyInput());
       await invalidateCashQueries();
     },
     onError: (error) => {
@@ -1011,11 +1011,12 @@ function CloseCashPanel({
       <div className="mt-2 flex flex-col gap-2 sm:flex-row">
         <Input
           id="closingAmount"
-          type="number"
-          min="0"
-          step="0.01"
+          type="text"
+          inputMode="decimal"
           value={closingAmount}
-          onChange={(event) => onClosingAmountChange(event.target.value)}
+          onChange={(event) => onClosingAmountChange(sanitizeCurrencyInput(event.target.value))}
+          onBlur={(event) => onClosingAmountChange(formatCurrencyInput(event.target.value))}
+          onFocus={(event) => event.currentTarget.select()}
           placeholder="Monto contado"
           required
         />

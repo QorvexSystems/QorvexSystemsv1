@@ -23,6 +23,7 @@ import {
 } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
+import { clearCurrencyInput, formatCurrencyInput, sanitizeCurrencyInput } from './pos/currency-input';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function CashSessionsView() {
@@ -31,7 +32,7 @@ export function CashSessionsView() {
   const [selectedRegisterId, setSelectedRegisterId] = useState('');
   const [selectedClosingSessionId, setSelectedClosingSessionId] = useState('');
   const [openingAmount, setOpeningAmount] = useState('5000');
-  const [closingAmount, setClosingAmount] = useState('');
+  const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [message, setMessage] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
 
@@ -108,7 +109,7 @@ export function CashSessionsView() {
     onSuccess: async (closedSession) => {
       setMessage('Caja cerrada correctamente.');
       toast.success('Caja cerrada correctamente.');
-      setClosingAmount('');
+      setClosingAmount(clearCurrencyInput());
       setSelectedClosingSessionId('');
       setExpandedSessionId(closedSession.id);
       await invalidateCash();
@@ -246,15 +247,16 @@ export function CashSessionsView() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="closingAmount">Monto contado para cierre</Label>
-                <Input
-                  id="closingAmount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={closingAmount}
-                  onChange={(event) => setClosingAmount(event.target.value)}
-                  required
-                />
+                  <Input
+                    id="closingAmount"
+                    type="text"
+                    inputMode="decimal"
+                    value={closingAmount}
+                    onChange={(event) => setClosingAmount(sanitizeCurrencyInput(event.target.value))}
+                    onBlur={(event) => setClosingAmount(formatCurrencyInput(event.target.value))}
+                    onFocus={(event) => event.currentTarget.select()}
+                    required
+                  />
               </div>
               <div className="flex items-end">
                 <Button type="submit" variant="outline" disabled={closeMutation.isPending}>
