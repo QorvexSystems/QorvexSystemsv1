@@ -14,6 +14,7 @@ import {
   SalesOrderStatus,
 } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { getBarcodeLookupCandidates } from '../../common/utils/barcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CancelSalesOrderDto,
@@ -120,12 +121,12 @@ export class OrdersService {
 
   async findProductByBarcode(tenantId: string, user: AuthenticatedUser, barcode: string) {
     await this.ensureCanTakeOrders(tenantId, user);
-    const normalizedBarcode = this.normalizeBarcode(barcode);
+    const lookupCandidates = getBarcodeLookupCandidates(barcode);
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        barcode: normalizedBarcode,
         status: ProductStatus.ACTIVE,
+        OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
       include: { category: true },
     });
@@ -709,9 +710,5 @@ export class OrdersService {
       String(date.getSeconds()).padStart(2, '0');
     const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
     return `ORD-${stamp}-${time}-${suffix}`;
-  }
-
-  private normalizeBarcode(barcode: string) {
-    return barcode.trim().replace(/\s+/g, '').toUpperCase();
   }
 }

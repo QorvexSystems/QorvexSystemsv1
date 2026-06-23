@@ -12,6 +12,7 @@ import {
   ProductStatus,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getBarcodeLookupCandidates, normalizeBarcodeInput } from '../../common/utils/barcode';
 import { AuditService } from '../audit/audit.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -58,32 +59,31 @@ export class ProductsService {
   }
 
   async findByBarcode(tenantId: string, barcode: string) {
-    const normalizedBarcode = this.normalizeBarcode(barcode);
+    const lookupCandidates = getBarcodeLookupCandidates(barcode);
 
-    const product = await this.prisma.product.updateMany({
+    const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        barcode: normalizedBarcode,
         status: ProductStatus.ACTIVE,
-      },
-      data: {
-        barcodeLastScannedAt: new Date(),
-      },
-    });
-
-    if (!product.count) {
-      throw new NotFoundException('No active product found for barcode.');
-    }
-
-    return this.prisma.product.findFirstOrThrow({
-      where: {
-        tenantId,
-        barcode: normalizedBarcode,
+        OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
       include: {
         category: true,
       },
     });
+
+    if (!product) {
+      throw new NotFoundException('No active product found for barcode.');
+    }
+
+    await this.prisma.product.update({
+      where: { id: product.id },
+      data: {
+        barcodeLastScannedAt: new Date(),
+      },
+    });
+
+    return product;
   }
 
   async create(tenantId: string, userId: string, dto: CreateProductDto) {
@@ -458,7 +458,7 @@ export class ProductsService {
   }
 
   private normalizeBarcode(barcode: string) {
-    return barcode.trim().replace(/\s+/g, '').toUpperCase();
+    return normalizeBarcodeInput(barcode);
   }
 
   private async ensureUniqueBarcode(tenantId: string, barcode: string, productId?: string) {

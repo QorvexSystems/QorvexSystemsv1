@@ -27,6 +27,7 @@ import {
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { getBarcodeLookupCandidates } from '../../common/utils/barcode';
 import { CompleteSaleDto, PosSaleItemDto } from './dto/complete-sale.dto';
 
 const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
@@ -78,12 +79,12 @@ export class PosService {
 
   async findByBarcode(tenantId: string, user: AuthenticatedUser, barcode: string) {
     await this.ensureCanCreateDirectSale(tenantId, user);
-    const normalizedBarcode = this.normalizeBarcode(barcode);
+    const lookupCandidates = getBarcodeLookupCandidates(barcode);
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        barcode: normalizedBarcode,
         status: ProductStatus.ACTIVE,
+        OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
       include: {
         category: true,
@@ -830,9 +831,5 @@ export class PosService {
     }
 
     return InvoiceStatus.ISSUED;
-  }
-
-  private normalizeBarcode(barcode: string) {
-    return barcode.trim().replace(/\s+/g, '').toUpperCase();
   }
 }
