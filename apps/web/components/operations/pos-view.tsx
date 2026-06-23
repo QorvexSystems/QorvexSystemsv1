@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, ClipboardCheck, DoorClosed, DoorOpen, Search, ShieldCheck, Store } from 'lucide-react';
+import { CalendarClock, ClipboardCheck, DoorClosed, DoorOpen, Search, ShieldCheck, Store, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -194,10 +194,19 @@ export function PosView() {
   function handleLoadOrder(order: SalesOrder) {
     if (loadedOrder && loadedOrder.id !== order.id) {
       setMessage('Libera o cobra la orden actual antes de tomar otra.');
+      toast.info('Quita la orden actual para seleccionar otra.');
       return;
     }
 
     claimOrderMutation.mutate(order);
+  }
+
+  function releaseLoadedOrder() {
+    if (!loadedOrder || releaseOrderMutation.isPending || completeSaleMutation.isPending) {
+      return;
+    }
+
+    releaseOrderMutation.mutate(loadedOrder.id);
   }
 
   const openSessionMutation = useMutation({
@@ -351,6 +360,8 @@ export function PosView() {
         setLoadedOrder(null);
         setCart([]);
         setCustomerId('');
+        setAmountReceived(clearCurrencyInput());
+        setMessage(`Orden ${order.orderNumber} quitada. Ya puedes seleccionar otra.`);
       }
       await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
       toast.success('Orden liberada', { description: order.orderNumber });
@@ -592,10 +603,13 @@ export function PosView() {
             <SalesOrdersQueuePanel
               orders={pendingOrdersQuery.data ?? []}
               loading={pendingOrdersQuery.isLoading}
+              loadedOrder={loadedOrder}
               loadedOrderId={loadedOrder?.id}
               currentUserId={session.user.id}
               claimingId={claimOrderMutation.variables?.id}
+              isReleasing={releaseOrderMutation.isPending}
               onLoad={handleLoadOrder}
+              onReleaseLoaded={releaseLoadedOrder}
             />
             {canCreateDirectSale ? (
               <>
@@ -683,10 +697,11 @@ export function PosView() {
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => releaseOrderMutation.mutate(loadedOrder.id)}
+                  onClick={releaseLoadedOrder}
                   disabled={releaseOrderMutation.isPending || completeSaleMutation.isPending}
                 >
-                  Liberar orden
+                  <X className="h-4 w-4" />
+                  Quitar orden
                 </Button>
               </div>
             ) : null}
@@ -739,17 +754,23 @@ export function PosView() {
 function SalesOrdersQueuePanel({
   orders,
   loading,
+  loadedOrder,
   loadedOrderId,
   currentUserId,
   claimingId,
+  isReleasing,
   onLoad,
+  onReleaseLoaded,
 }: {
   orders: SalesOrder[];
   loading: boolean;
+  loadedOrder: SalesOrder | null;
   loadedOrderId?: string;
   currentUserId: string;
   claimingId?: string;
+  isReleasing: boolean;
   onLoad: (order: SalesOrder) => void;
+  onReleaseLoaded: () => void;
 }) {
   const [queueSearch, setQueueSearch] = useState('');
   const normalizedSearch = queueSearch.trim().toLowerCase();
@@ -784,6 +805,27 @@ function SalesOrdersQueuePanel({
         </div>
       </CardHeader>
       <CardContent>
+        {loadedOrder ? (
+          <div className="mb-3 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[#9a3f05]">
+                  Ticket cargado: {loadedOrder.orderNumber}
+                </p>
+                <p className="mt-1 text-xs text-[#9a3f05]">
+                  {loadedOrder.customer?.name ?? 'Consumidor final'} - {formatCurrency(Number(loadedOrder.total))}
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={onReleaseLoaded} disabled={isReleasing}>
+                <X className="h-4 w-4" />
+                Quitar orden
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-[#9a3f05]">
+              Quita este ticket si no corresponde para poder seleccionar otro de la lista.
+            </p>
+          </div>
+        ) : null}
         <div className="mb-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
