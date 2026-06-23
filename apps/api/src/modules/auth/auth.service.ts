@@ -42,7 +42,7 @@ export class AuthService {
       (membership) => membership.status === MembershipStatus.ACTIVE,
     );
 
-    const configuredExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '15m');
+    const configuredExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '8h');
     const tokenOptions = {
       secret: this.config.get<string>('JWT_SECRET', 'change-me'),
       expiresIn: this.parseExpiresInSeconds(configuredExpiresIn),
@@ -95,7 +95,7 @@ export class AuthService {
     const match = value.match(/^(\d+)([smhd])$/);
 
     if (!match) {
-      return 15 * 60;
+      return 8 * 60 * 60;
     }
 
     const amount = Number(match[1]);

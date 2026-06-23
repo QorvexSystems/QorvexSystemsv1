@@ -55,7 +55,7 @@ Configurar en `.env`, `.env.local`, `.env.production.local` o en Vercel Environm
 DATABASE_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
 DIRECT_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
 JWT_SECRET="replace-with-qorvex-secret"
-JWT_EXPIRES_IN="15m"
+JWT_EXPIRES_IN="8h"
 CORS_ORIGIN="http://localhost:3000,https://YOUR_FRONTEND_VERCEL_URL"
 NODE_ENV="production"
 ```
