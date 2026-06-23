@@ -454,6 +454,12 @@ export type ImportBatch = {
   }>;
 };
 
+export type ProductImageUploadResult = {
+  imageUrl: string;
+  path: string;
+  bucket: string;
+};
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
 if (!apiUrl) {
@@ -465,22 +471,29 @@ const apiMessageTranslations: Record<string, string> = {
   'Invalid or expired token.': 'La sesion no es valida o expiro.',
   'User is not active.': 'El usuario no esta activo.',
   'Missing x-tenant-id header.': 'Falta identificar la empresa de trabajo.',
-  'Missing x-tenant-id header for tenant-scoped request.': 'Falta identificar la empresa de trabajo.',
+  'Missing x-tenant-id header for tenant-scoped request.':
+    'Falta identificar la empresa de trabajo.',
   'Authenticated user is required.': 'Debes iniciar sesion para continuar.',
   'User does not belong to this tenant.': 'Tu usuario no pertenece a esta empresa.',
-  'Role checks require authenticated tenant context.': 'No se pudo validar el rol para esta empresa.',
+  'Role checks require authenticated tenant context.':
+    'No se pudo validar el rol para esta empresa.',
   'Insufficient role for this operation.': 'Tu rol no permite realizar esta operacion.',
   'Invalid credentials.': 'Credenciales invalidas.',
   'Tenant not found.': 'Empresa no encontrada.',
   'This user already belongs to this tenant.': 'Este usuario ya pertenece a esta empresa.',
+  'Tenant user limit reached.': 'La empresa ya tiene el limite de 4 usuarios activos.',
   'Employee not found for tenant.': 'Empleado no encontrado en esta empresa.',
   'Employee membership not found.': 'No se encontro la membresia del empleado.',
   'Employee management permission is required.': 'Necesitas permiso para gestionar empleados.',
-  'This role cannot be assigned to a tenant employee.': 'Este rol no puede asignarse a un empleado de la empresa.',
-  'At least one active admin must remain for the tenant.': 'Debe quedar al menos un administrador activo en la empresa.',
+  'This role cannot be assigned to a tenant employee.':
+    'Este rol no puede asignarse a un empleado de la empresa.',
+  'At least one active admin must remain for the tenant.':
+    'Debe quedar al menos un administrador activo en la empresa.',
   'Customer not found for tenant.': 'Cliente no encontrado en esta empresa.',
   'Product not found for tenant.': 'Producto no encontrado en esta empresa.',
   'Product category not found for tenant.': 'Categoria de producto no encontrada en esta empresa.',
+  'Product code already exists for this tenant.':
+    'Ese codigo de producto ya existe en esta empresa.',
   'No active product found for barcode.': 'No se encontro un producto activo con ese codigo.',
   'Inventory movement would leave product stock below zero.':
     'El movimiento dejaria el inventario del producto por debajo de cero.',
@@ -504,7 +517,8 @@ const apiMessageTranslations: Record<string, string> = {
   'This cash register already has an open session.':
     'Esta caja ya tiene una sesion abierta. Selecciona otra caja o cierra la sesion abierta.',
   'Cash register not found for tenant.': 'Caja no encontrada en esta empresa.',
-  'Open cash session not found for tenant.': 'No se encontro una sesion de caja abierta en esta empresa.',
+  'Open cash session not found for tenant.':
+    'No se encontro una sesion de caja abierta en esta empresa.',
   'Manual cash movements must be cash in, cash out, or adjustment.':
     'Los movimientos manuales de caja deben ser entrada, salida o ajuste.',
   'Employee does not have permission for this cash operation.':
@@ -514,14 +528,17 @@ const apiMessageTranslations: Record<string, string> = {
   'An open cash session for this cashier is required to complete POS sales.':
     'Debes abrir una caja con tu usuario antes de completar ventas.',
   'Employee does not have POS access.': 'Tu usuario no tiene permiso para usar la caja.',
-  'Employee profile must be active to use POS.': 'El perfil del empleado debe estar activo para usar el POS.',
+  'Employee profile must be active to use POS.':
+    'El perfil del empleado debe estar activo para usar el POS.',
   'Cashier can only charge orders sent to cashier.':
     'El cajero solo puede cobrar ordenes enviadas a caja.',
   'Only admins can create direct POS sales.':
     'Solo el administrador puede crear ventas directas desde el POS.',
   'Amount received cannot be negative.': 'El monto recibido no puede ser negativo.',
-  'Cash received must cover the invoice total.': 'El efectivo recibido debe cubrir el total de la factura.',
-  'Payment amount must cover the invoice total.': 'El monto pagado debe cubrir el total de la factura.',
+  'Cash received must cover the invoice total.':
+    'El efectivo recibido debe cubrir el total de la factura.',
+  'Payment amount must cover the invoice total.':
+    'El monto pagado debe cubrir el total de la factura.',
   'Sales order must include at least one item.': 'La orden debe incluir al menos un producto.',
   'Pending sales order not found for tenant.': 'Orden pendiente no encontrada en esta empresa.',
   'Sales order not found for tenant.': 'Orden no encontrada en esta empresa.',
@@ -554,9 +571,19 @@ const apiMessageTranslations: Record<string, string> = {
   'Could not reserve fiscal sequence.':
     'No se pudo reservar la secuencia fiscal. Intenta nuevamente.',
   'Could not generate a unique barcode.': 'No se pudo generar un codigo de barras unico.',
+  'Could not generate a unique product code.': 'No se pudo generar un codigo de producto unico.',
   'Product must have a barcode before printing labels.':
     'El producto debe tener codigo de barras antes de imprimir etiquetas.',
   'Barcode already exists for this tenant.': 'Ese codigo de barras ya existe en esta empresa.',
+  'Product image file is required.': 'Debes seleccionar una imagen de producto.',
+  'Product image must be JPG, PNG, WEBP, or GIF.': 'La imagen debe ser JPG, PNG, WEBP o GIF.',
+  'Product image cannot be larger than 5 MB.': 'La imagen no puede pesar mas de 5 MB.',
+  'Product image storage is not configured.': 'El almacenamiento de imagenes no esta configurado.',
+  'Product image could not be uploaded.': 'No se pudo subir la imagen del producto.',
+  'Import file is required.': 'Debes seleccionar un archivo de importacion.',
+  'Import file cannot be larger than 10 MB.':
+    'El archivo de importacion no puede pesar mas de 10 MB.',
+  'Import file does not contain sheets.': 'El archivo no contiene hojas para importar.',
 };
 
 async function fetchJson<T>(path: string, options?: RequestInit) {
@@ -575,6 +602,27 @@ async function fetchJson<T>(path: string, options?: RequestInit) {
 
   if (response.status === 204) {
     return null as T;
+  }
+
+  const body = await response.text();
+
+  if (!body.trim()) {
+    return null as T;
+  }
+
+  return JSON.parse(body) as T;
+}
+
+async function fetchFormData<T>(path: string, formData: FormData, headers: Record<string, string>) {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(getApiErrorMessage(body, response.status));
   }
 
   const body = await response.text();
@@ -837,6 +885,17 @@ export function getProductLabel(tenantId: string, accessToken: string, productId
   });
 }
 
+export function uploadProductImage(tenantId: string, accessToken: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return fetchFormData<ProductImageUploadResult>(
+    '/products/image',
+    formData,
+    tenantHeaders(tenantId, accessToken),
+  );
+}
+
 export function getInventoryMovements(tenantId: string, accessToken: string) {
   return fetchJson<InventoryMovement[]>('/inventory/movements', {
     headers: tenantHeaders(tenantId, accessToken),
@@ -855,7 +914,11 @@ export function getInvoice(tenantId: string, accessToken: string, invoiceId: str
   });
 }
 
-export function createInvoice(tenantId: string, accessToken: string, payload: CreateInvoicePayload) {
+export function createInvoice(
+  tenantId: string,
+  accessToken: string,
+  payload: CreateInvoicePayload,
+) {
   return fetchJson<Invoice>('/invoices', {
     method: 'POST',
     headers: tenantHeaders(tenantId, accessToken),
@@ -973,4 +1036,15 @@ export function getImportBatches(tenantId: string, accessToken: string) {
   return fetchJson<ImportBatch[]>('/imports', {
     headers: tenantHeaders(tenantId, accessToken),
   });
+}
+
+export function importProductsFile(tenantId: string, accessToken: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return fetchFormData<ImportBatch>(
+    '/imports/products',
+    formData,
+    tenantHeaders(tenantId, accessToken),
+  );
 }

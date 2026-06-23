@@ -1,16 +1,33 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Role } from '@qorvex/database';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantMembershipGuard } from '../../common/guards/tenant-membership.guard';
+import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { ImportsService } from './imports.service';
 
 @Controller('imports')
-@UseGuards(JwtAuthGuard, TenantMembershipGuard)
+@UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
 export class ImportsController {
   constructor(private readonly importsService: ImportsService) {}
 
   @Get()
   findAll(@TenantId() tenantId: string) {
     return this.importsService.findAll(tenantId);
+  }
+
+  @Post('products')
+  @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  importProducts(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: { originalname: string; buffer: Buffer; size: number },
+  ) {
+    return this.importsService.importProducts(tenantId, user.id, file);
   }
 }

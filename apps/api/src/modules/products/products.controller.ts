@@ -8,7 +8,10 @@ import {
   Post,
   Query,
   UseGuards,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@qorvex/database';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -20,6 +23,7 @@ import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
+import type { UploadedProductImageFile } from './products.service';
 
 @Controller('products')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
@@ -49,6 +53,17 @@ export class ProductsController {
     @Body() dto: CreateProductDto,
   ) {
     return this.productsService.create(tenantId, user.id, dto);
+  }
+
+  @Post('image')
+  @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  uploadImage(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: UploadedProductImageFile,
+  ) {
+    return this.productsService.uploadImage(tenantId, user.id, file);
   }
 
   @Get(':id')

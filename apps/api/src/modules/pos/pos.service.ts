@@ -135,7 +135,12 @@ export class PosService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const cashSession = await this.findCashSessionForSale(tx, tenantId, user.id, dto.cashSessionId);
+      const cashSession = await this.findCashSessionForSale(
+        tx,
+        tenantId,
+        user.id,
+        dto.cashSessionId,
+      );
       const order = dto.orderId
         ? await this.claimOrderForSale(tx, tenantId, user.id, cashSession.id, dto.orderId)
         : null;
@@ -178,8 +183,9 @@ export class PosService {
       const balance = computed.total.sub(paidAmount).toDecimalPlaces(2);
       const status = this.getInvoiceStatus(paidAmount, computed.total);
       const issuedAt = new Date();
-      const invoiceNumber = `RIV-${sequence.prefix}-${String(sequence.number).padStart(6, '0')}`;
-      const eNcf = `${sequence.prefix}${String(sequence.number).padStart(10, '0')}`;
+      const fiscalNumber = this.formatFiscalNumber(sequence.prefix, sequence.number);
+      const invoiceNumber = `RIV-${fiscalNumber}`;
+      const eNcf = fiscalNumber;
 
       const invoice = await tx.invoice.create({
         data: {
@@ -187,6 +193,7 @@ export class PosService {
           customerId: customer?.id,
           documentType,
           invoiceNumber,
+          ncf: fiscalNumber,
           eNcf,
           status,
           fiscalStatus: InvoiceFiscalStatus.SIGNED,
@@ -695,7 +702,9 @@ export class PosService {
       });
 
       if (!sequence || sequence.nextNumber > sequence.endNumber) {
-        throw new BadRequestException('No active fiscal sequence available for this document type.');
+        throw new BadRequestException(
+          'No active fiscal sequence available for this document type.',
+        );
       }
 
       const reserved = await tx.fiscalSequence.updateMany({
@@ -725,6 +734,11 @@ export class PosService {
     throw new BadRequestException('Could not reserve fiscal sequence.');
   }
 
+  private formatFiscalNumber(prefix: string, number: number) {
+    const width = prefix === 'BA' ? 4 : 10;
+    return `${prefix}${String(number).padStart(width, '0')}`;
+  }
+
   private async findCashSessionForSale(
     tx: Prisma.TransactionClient,
     tenantId: string,
@@ -744,7 +758,9 @@ export class PosService {
     });
 
     if (!session) {
-      throw new BadRequestException('An open cash session for this cashier is required to complete POS sales.');
+      throw new BadRequestException(
+        'An open cash session for this cashier is required to complete POS sales.',
+      );
     }
 
     return session;
@@ -765,8 +781,7 @@ export class PosService {
 
     if (
       !membership ||
-      (!membership.canUsePos &&
-        !([...adminRoles, Role.CASHIER].includes(membership.role)))
+      (!membership.canUsePos && ![...adminRoles, Role.CASHIER].includes(membership.role))
     ) {
       throw new ForbiddenException('Employee does not have POS access.');
     }
@@ -815,9 +830,10 @@ export class PosService {
     return {
       paidAmount: total.toDecimalPlaces(2),
       amountReceived: tendered,
-      changeAmount: paymentMethod === PaymentMethod.CASH && tendered.gt(total)
-        ? tendered.sub(total).toDecimalPlaces(2)
-        : new Prisma.Decimal(0),
+      changeAmount:
+        paymentMethod === PaymentMethod.CASH && tendered.gt(total)
+          ? tendered.sub(total).toDecimalPlaces(2)
+          : new Prisma.Decimal(0),
     };
   }
 

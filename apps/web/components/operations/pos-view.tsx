@@ -1,7 +1,16 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, ClipboardCheck, DoorClosed, DoorOpen, Search, ShieldCheck, Store, X } from 'lucide-react';
+import {
+  CalendarClock,
+  ClipboardCheck,
+  DoorClosed,
+  DoorOpen,
+  Search,
+  ShieldCheck,
+  Store,
+  X,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -51,7 +60,8 @@ type BarcodeDetectorInstance = {
   detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]>;
 };
 type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
-type WindowWithBarcodeDetector = Window & typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
+type WindowWithBarcodeDetector = Window &
+  typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
 
 export function PosView() {
   const session = useCurrentSession();
@@ -104,7 +114,8 @@ export function PosView() {
   const canCreateDirectSale = isAdminSession(session);
   const productsQuery = useQuery({
     queryKey: ['pos-products-search', session?.tenantId, search],
-    queryFn: () => searchPosProducts(session?.tenantId ?? '', session?.accessToken ?? '', search || 'RIV'),
+    queryFn: () =>
+      searchPosProducts(session?.tenantId ?? '', session?.accessToken ?? '', search || 'RIV'),
     enabled: Boolean(session && currentSessionQuery.data && canCreateDirectSale),
   });
   const pendingOrdersQuery = useQuery({
@@ -114,9 +125,15 @@ export function PosView() {
   });
 
   const currentCashSession = currentSessionQuery.data;
-  const canUsePos = session?.permissions.canUsePos ?? ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
-  const canOpenCashSession = session?.permissions.canOpenCashSession ?? ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
-  const canCloseCashSession = session?.permissions.canCloseCashSession ?? ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
+  const canUsePos =
+    session?.permissions.canUsePos ??
+    ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
+  const canOpenCashSession =
+    session?.permissions.canOpenCashSession ??
+    ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
+  const canCloseCashSession =
+    session?.permissions.canCloseCashSession ??
+    ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
   const cartReadOnly = !canCreateDirectSale && Boolean(loadedOrder);
 
   useEffect(() => {
@@ -172,10 +189,14 @@ export function PosView() {
 
   useEffect(() => () => stopCameraScan(), []);
 
-  const activeCustomers = (customersQuery.data ?? []).filter((customer) => customer.status === 'ACTIVE');
+  const activeCustomers = (customersQuery.data ?? []).filter(
+    (customer) => customer.status === 'ACTIVE',
+  );
   const productPool = productsQuery.data ?? [];
   const categories = uniqueValues(
-    productPool.map((product) => product.category?.name).filter((value): value is string => Boolean(value)),
+    productPool
+      .map((product) => product.category?.name)
+      .filter((value): value is string => Boolean(value)),
   );
   const brands = uniqueValues(
     productPool.map((product) => product.brand).filter((value): value is string => Boolean(value)),
@@ -183,18 +204,22 @@ export function PosView() {
   const filteredProducts = productPool
     .filter((product) => categoryFilter === 'ALL' || product.category?.name === categoryFilter)
     .filter((product) => brandFilter === 'ALL' || product.brand === brandFilter);
-  const quantitiesByProduct = Object.fromEntries(cart.map((item) => [item.product.id, item.quantity]));
-  const canCompleteSale = cart.length > 0 && Boolean(currentCashSession) && (canCreateDirectSale || Boolean(loadedOrder));
+  const quantitiesByProduct = Object.fromEntries(
+    cart.map((item) => [item.product.id, item.quantity]),
+  );
+  const canCompleteSale =
+    cart.length > 0 && Boolean(currentCashSession) && (canCreateDirectSale || Boolean(loadedOrder));
   const selectedOpenSession = (cashSessionsQuery.data ?? []).find(
-    (cashSession) => cashSession.status === 'OPEN' && cashSession.cashRegister.id === selectedRegisterId,
+    (cashSession) =>
+      cashSession.status === 'OPEN' && cashSession.cashRegister.id === selectedRegisterId,
   );
   const selectedRegisterOccupied =
     Boolean(selectedOpenSession) && selectedOpenSession?.openedBy?.id !== session?.user.id;
 
   function handleLoadOrder(order: SalesOrder) {
     if (loadedOrder && loadedOrder.id !== order.id) {
-      setMessage('Libera o cobra la orden actual antes de tomar otra.');
-      toast.info('Quita la orden actual para seleccionar otra.');
+      setMessage('Quita la orden cargada o completala antes de seleccionar otro ticket.');
+      toast.info('Primero quita la orden actual para elegir otra.');
       return;
     }
 
@@ -451,7 +476,9 @@ export function PosView() {
     if (loadedOrder) {
       releaseOrderMutation.mutate(loadedOrder.id);
       setLoadedOrder(null);
-      setMessage('Orden desvinculada por edicion manual. Esta venta se cobrara como venta directa.');
+      setMessage(
+        'Orden desvinculada por edicion manual. Esta venta se cobrara como venta directa.',
+      );
     }
   }
 
@@ -486,7 +513,9 @@ export function PosView() {
 
   function enableScanner() {
     setScannerEnabled(true);
-    setScannerMessage('Lector activo. Escanea con pistola USB o usa camara si el navegador lo soporta.');
+    setScannerMessage(
+      'Lector activo. Escanea con pistola USB o usa camara si el navegador lo soporta.',
+    );
     window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
   }
 
@@ -502,13 +531,17 @@ export function PosView() {
 
     const detectorConstructor = (window as WindowWithBarcodeDetector).BarcodeDetector;
     if (!detectorConstructor || !navigator.mediaDevices?.getUserMedia) {
-      setScannerMessage('Camara QR no disponible en este navegador. Usa el lector USB o escribe el codigo.');
+      setScannerMessage(
+        'Camara QR no disponible en este navegador. Usa el lector USB o escribe el codigo.',
+      );
       barcodeInputRef.current?.focus();
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
       streamRef.current = stream;
       setCameraActive(true);
 
@@ -546,7 +579,9 @@ export function PosView() {
 
       scanFrameRef.current = window.requestAnimationFrame(scan);
     } catch {
-      setScannerMessage('No se pudo activar la camara. Puedes usar el lector USB o escribir el codigo.');
+      setScannerMessage(
+        'No se pudo activar la camara. Puedes usar el lector USB o escribir el codigo.',
+      );
       barcodeInputRef.current?.focus();
     }
   }
@@ -592,7 +627,9 @@ export function PosView() {
           canOpenCashSession={canOpenCashSession}
           isOpening={openSessionMutation.isPending}
           message={message}
-          occupiedBy={selectedRegisterOccupied ? selectedOpenSession?.openedBy?.name ?? 'otro cajero' : null}
+          occupiedBy={
+            selectedRegisterOccupied ? (selectedOpenSession?.openedBy?.name ?? 'otro cajero') : null
+          }
           onRegisterChange={setSelectedRegisterId}
           onOpeningAmountChange={setOpeningAmount}
           onOpen={() => openSessionMutation.mutate()}
@@ -692,16 +729,20 @@ export function PosView() {
           <div className="space-y-3 xl:sticky xl:top-24">
             {loadedOrder ? (
               <div className="flex flex-col gap-2 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05] sm:flex-row sm:items-center sm:justify-between">
-                <span>Cobrando ticket pendiente {loadedOrder.orderNumber}. La factura se emitira al completar el cobro.</span>
+                <span>
+                  Cobrando ticket pendiente {loadedOrder.orderNumber}. La factura se emitira al
+                  completar el cobro.
+                </span>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
+                  className="border-[#f36c10]/40 bg-white text-[#9a3f05] hover:bg-[#f36c10]/10"
                   onClick={releaseLoadedOrder}
                   disabled={releaseOrderMutation.isPending || completeSaleMutation.isPending}
                 >
                   <X className="h-4 w-4" />
-                  Quitar orden
+                  Quitar y elegir otra
                 </Button>
               </div>
             ) : null}
@@ -799,9 +840,13 @@ function SalesOrdersQueuePanel({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle>Tickets pendientes en caja</CardTitle>
-            <CardDescription>Selecciona una preventa pendiente para cobrarla y emitir factura.</CardDescription>
+            <CardDescription>
+              Selecciona una preventa pendiente para cobrarla y emitir factura.
+            </CardDescription>
           </div>
-          <Badge variant={orders.length ? 'warning' : 'outline'}>{orders.length} pendiente(s)</Badge>
+          <Badge variant={orders.length ? 'warning' : 'outline'}>
+            {orders.length} pendiente(s)
+          </Badge>
         </div>
       </CardHeader>
       <CardContent>
@@ -813,12 +858,20 @@ function SalesOrdersQueuePanel({
                   Ticket cargado: {loadedOrder.orderNumber}
                 </p>
                 <p className="mt-1 text-xs text-[#9a3f05]">
-                  {loadedOrder.customer?.name ?? 'Consumidor final'} - {formatCurrency(Number(loadedOrder.total))}
+                  {loadedOrder.customer?.name ?? 'Consumidor final'} -{' '}
+                  {formatCurrency(Number(loadedOrder.total))}
                 </p>
               </div>
-              <Button type="button" size="sm" variant="outline" onClick={onReleaseLoaded} disabled={isReleasing}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-[#f36c10]/40 bg-white text-[#9a3f05] hover:bg-[#f36c10]/10"
+                onClick={onReleaseLoaded}
+                disabled={isReleasing}
+              >
                 <X className="h-4 w-4" />
-                Quitar orden
+                Quitar y elegir otra
               </Button>
             </div>
             <p className="mt-2 text-xs text-[#9a3f05]">
@@ -838,7 +891,9 @@ function SalesOrdersQueuePanel({
           </div>
         </div>
         {loading ? (
-          <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">Cargando ordenes...</p>
+          <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">
+            Cargando ordenes...
+          </p>
         ) : visibleOrders.length ? (
           <div className="grid gap-2 lg:grid-cols-2">
             {visibleOrders.map((order) => (
@@ -847,13 +902,20 @@ function SalesOrdersQueuePanel({
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
-                      <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
-                      <Badge variant={getWaitingVariant(order)}>{getWaitingMinutes(order)} min</Badge>
+                      <Badge variant={getStatusVariant(order.status)}>
+                        {translateStatus(order.status)}
+                      </Badge>
+                      <Badge variant={getWaitingVariant(order)}>
+                        {getWaitingMinutes(order)} min
+                      </Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {order.customer?.name ?? 'Consumidor final'} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
+                      {order.customer?.name ?? 'Consumidor final'} -{' '}
+                      {formatDate(order.sentToCashierAt ?? order.createdAt)}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">Creada por {order.createdBy.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Creada por {order.createdBy.name}
+                    </p>
                     {order.claimedBy ? (
                       <p className="mt-1 text-xs text-warning">
                         Tomada por {order.claimedBy.name}
@@ -863,10 +925,14 @@ function SalesOrdersQueuePanel({
                       </p>
                     ) : null}
                   </div>
-                  <p className="shrink-0 text-sm font-bold">{formatCurrency(Number(order.total))}</p>
+                  <p className="shrink-0 text-sm font-bold">
+                    {formatCurrency(Number(order.total))}
+                  </p>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">{order.items.length} producto(s)</span>
+                  <span className="text-xs text-muted-foreground">
+                    {order.items.length} producto(s)
+                  </span>
                   <Button
                     type="button"
                     size="sm"
@@ -879,7 +945,11 @@ function SalesOrdersQueuePanel({
                     }
                   >
                     <ClipboardCheck className="h-4 w-4" />
-                    {loadedOrderId === order.id ? 'Cargada' : order.status === 'IN_CASHIER' ? 'Tomada' : 'Cobrar'}
+                    {loadedOrderId === order.id
+                      ? 'Cargada'
+                      : order.status === 'IN_CASHIER'
+                        ? 'Tomada'
+                        : 'Cobrar'}
                   </Button>
                 </div>
               </div>
@@ -889,7 +959,9 @@ function SalesOrdersQueuePanel({
           <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
             <ClipboardCheck className="mx-auto h-6 w-6 text-muted-foreground" />
             <p className="mt-2 text-sm text-muted-foreground">
-              {orders.length ? 'No hay tickets que coincidan con la busqueda.' : 'No hay tickets pendientes de cobro.'}
+              {orders.length
+                ? 'No hay tickets que coincidan con la busqueda.'
+                : 'No hay tickets pendientes de cobro.'}
             </p>
           </div>
         )}
@@ -974,10 +1046,12 @@ function ClosedCashPanel({
       <div className="grid lg:grid-cols-[0.85fr_1.15fr]">
         <div className="bg-zinc-950 p-6 text-white">
           <Badge variant="warning">Caja cerrada</Badge>
-          <h2 className="mt-4 text-2xl font-bold">Para iniciar ventas debes abrir una sesion de caja.</h2>
+          <h2 className="mt-4 text-2xl font-bold">
+            Para iniciar ventas debes abrir una sesion de caja.
+          </h2>
           <p className="mt-3 text-sm leading-6 text-zinc-300">
-            Declara el fondo inicial, selecciona la caja fisica y el sistema registrara la apertura, el
-            movimiento de caja y la actividad del empleado.
+            Declara el fondo inicial, selecciona la caja fisica y el sistema registrara la apertura,
+            el movimiento de caja y la actividad del empleado.
           </p>
         </div>
         <CardContent className="p-6">
@@ -1011,14 +1085,21 @@ function ClosedCashPanel({
                 type="text"
                 inputMode="decimal"
                 value={openingAmount}
-                onChange={(event) => onOpeningAmountChange(sanitizeCurrencyInput(event.target.value))}
+                onChange={(event) =>
+                  onOpeningAmountChange(sanitizeCurrencyInput(event.target.value))
+                }
                 onBlur={(event) => onOpeningAmountChange(formatCurrencyInput(event.target.value))}
                 onFocus={(event) => event.currentTarget.select()}
                 required
               />
             </div>
             <div className="flex items-end">
-              <Button type="submit" disabled={!selectedRegisterId || isOpening || !canOpenCashSession || Boolean(occupiedBy)}>
+              <Button
+                type="submit"
+                disabled={
+                  !selectedRegisterId || isOpening || !canOpenCashSession || Boolean(occupiedBy)
+                }
+              >
                 <DoorOpen className="h-4 w-4" />
                 Abrir caja
               </Button>
@@ -1069,13 +1150,23 @@ function CloseCashPanel({
           placeholder="Monto contado"
           required
         />
-        <Button type="submit" variant="outline" disabled={!canCloseCashSession || isClosing || cartHasItems}>
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={!canCloseCashSession || isClosing || cartHasItems}
+        >
           <DoorClosed className="h-4 w-4" />
           Cerrar
         </Button>
       </div>
-      {cartHasItems ? <p className="mt-2 text-xs text-muted-foreground">Limpia o factura el carrito antes de cerrar.</p> : null}
-      {!canCloseCashSession ? <p className="mt-2 text-xs text-danger">Sin permiso para cerrar caja.</p> : null}
+      {cartHasItems ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Limpia o factura el carrito antes de cerrar.
+        </p>
+      ) : null}
+      {!canCloseCashSession ? (
+        <p className="mt-2 text-xs text-danger">Sin permiso para cerrar caja.</p>
+      ) : null}
     </form>
   );
 }

@@ -123,6 +123,10 @@ export class CreateEmployeeDto extends EmployeePermissionsDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsEnum(EmployeeStatus)
+  status?: EmployeeStatus;
 }
 
 export class UpdateEmployeeDto extends EmployeePermissionsDto {

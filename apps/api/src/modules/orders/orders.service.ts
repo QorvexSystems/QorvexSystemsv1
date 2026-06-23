@@ -52,8 +52,7 @@ export class OrdersService {
 
     const parsedStatuses = this.parseStatuses(status);
     const ownOrdersOnly =
-      !adminRoles.includes(membership.role) &&
-      membership.role === Role.ORDER_TAKER;
+      !adminRoles.includes(membership.role) && membership.role === Role.ORDER_TAKER;
 
     return this.prisma.salesOrder.findMany({
       where: {
@@ -208,7 +207,7 @@ export class OrdersService {
             entity: 'SalesOrder',
             entityId: order.id,
             amount: computed.total,
-            metadata: { orderNumber: order.orderNumber },
+            metadata: this.buildOrderLogMetadata(order, computed.items, user.id),
           },
           {
             tenantId,
@@ -217,7 +216,7 @@ export class OrdersService {
             entity: 'SalesOrder',
             entityId: order.id,
             amount: computed.total,
-            metadata: { orderNumber: order.orderNumber },
+            metadata: this.buildOrderLogMetadata(order, computed.items, user.id),
           },
         ],
       });
@@ -328,7 +327,9 @@ export class OrdersService {
       }
 
       if (!adminRoles.includes(membership.role) && order.claimedById !== user.id) {
-        throw new ForbiddenException('Employee does not have permission to release this sales order.');
+        throw new ForbiddenException(
+          'Employee does not have permission to release this sales order.',
+        );
       }
 
       const released = await tx.salesOrder.update({
@@ -383,7 +384,9 @@ export class OrdersService {
           (membership.role === Role.CASHIER || membership.canUsePos));
 
       if (!canCancel) {
-        throw new ForbiddenException('Employee does not have permission to cancel this sales order.');
+        throw new ForbiddenException(
+          'Employee does not have permission to cancel this sales order.',
+        );
       }
 
       if (!openOrderStatuses.includes(order.status)) {
@@ -594,10 +597,7 @@ export class OrdersService {
   private async ensureCanTakeOrders(tenantId: string, user: AuthenticatedUser) {
     const membership = this.getMembership(tenantId, user);
 
-    if (
-      !adminRoles.includes(membership.role) &&
-      membership.role !== Role.ORDER_TAKER
-    ) {
+    if (!adminRoles.includes(membership.role) && membership.role !== Role.ORDER_TAKER) {
       throw new ForbiddenException('Employee does not have permission to take orders.');
     }
 
@@ -656,7 +656,9 @@ export class OrdersService {
     });
 
     if (!session) {
-      throw new BadRequestException('An open cash session for this cashier is required to claim sales orders.');
+      throw new BadRequestException(
+        'An open cash session for this cashier is required to claim sales orders.',
+      );
     }
 
     return session;
@@ -705,10 +707,33 @@ export class OrdersService {
   private generateOrderNumber() {
     const date = new Date();
     const stamp = date.toISOString().slice(0, 10).replace(/-/g, '');
-    const time = String(date.getHours()).padStart(2, '0') +
+    const time =
+      String(date.getHours()).padStart(2, '0') +
       String(date.getMinutes()).padStart(2, '0') +
       String(date.getSeconds()).padStart(2, '0');
     const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
     return `ORD-${stamp}-${time}-${suffix}`;
+  }
+
+  private buildOrderLogMetadata(
+    order: { orderNumber: string; customerId: string | null },
+    items: ComputedOrderItem[],
+    userId: string,
+  ) {
+    return {
+      orderNumber: order.orderNumber,
+      customerId: order.customerId,
+      createdById: userId,
+      itemCount: items.length,
+      quantityTotal: items.reduce((total, item) => total + item.quantity.toNumber(), 0),
+      items: items.map((item) => ({
+        productId: item.product.id,
+        sku: item.product.sku,
+        barcode: item.product.barcode,
+        name: item.product.name,
+        quantity: item.quantity.toNumber(),
+        total: item.total.toNumber(),
+      })),
+    };
   }
 }

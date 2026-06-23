@@ -33,6 +33,8 @@ const permissionKeys = [
   'canReprintReceipt',
   'canTakeOrders',
 ] as const;
+const maxTenantUsers = 4;
+const tenantAssignableRoles: Role[] = [Role.ADMIN, Role.CASHIER, Role.ORDER_TAKER];
 
 @Injectable()
 export class EmployeesService {
@@ -63,6 +65,7 @@ export class EmployeesService {
   async create(tenantId: string, actor: AuthenticatedUser, dto: CreateEmployeeDto) {
     this.requireEmployeeManagement(tenantId, actor);
     this.ensureTenantRole(dto.role);
+    await this.ensureTenantUserLimit(tenantId);
 
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({
@@ -77,6 +80,20 @@ export class EmployeesService {
     const passwordHash = await bcrypt.hash(dto.password ?? 'DemoPassword123!', 12);
 
     const employee = await this.prisma.$transaction(async (tx) => {
+      const profileStatus = dto.status ?? EmployeeStatus.ACTIVE;
+
+      const mapUserStatus = (status: EmployeeStatus | undefined) =>
+        status === EmployeeStatus.BLOCKED
+          ? UserStatus.BLOCKED
+          : status === EmployeeStatus.INACTIVE || status === EmployeeStatus.TERMINATED
+          ? UserStatus.INACTIVE
+          : status === EmployeeStatus.ACTIVE
+          ? UserStatus.ACTIVE
+          : undefined;
+
+      const mapMembershipStatus = (status: EmployeeStatus | undefined) =>
+        status === EmployeeStatus.ACTIVE ? MembershipStatus.ACTIVE : status ? MembershipStatus.INACTIVE : undefined;
+
       const user =
         existing ??
         (await tx.user.create({
@@ -85,7 +102,7 @@ export class EmployeesService {
             name: dto.name,
             phone: dto.phone,
             passwordHash,
-            status: UserStatus.ACTIVE,
+            status: mapUserStatus(profileStatus) ?? UserStatus.ACTIVE,
           },
         }));
 
@@ -96,7 +113,7 @@ export class EmployeesService {
             name: dto.name,
             phone: dto.phone,
             ...(dto.password ? { passwordHash } : {}),
-            status: UserStatus.ACTIVE,
+            status: mapUserStatus(profileStatus) ?? UserStatus.ACTIVE,
           },
         });
       }
@@ -106,7 +123,7 @@ export class EmployeesService {
           tenantId,
           userId: user.id,
           role: dto.role,
-          status: MembershipStatus.ACTIVE,
+          status: mapMembershipStatus(profileStatus) ?? MembershipStatus.ACTIVE,
           ...this.pickPermissions(dto, dto.role),
         },
       });
@@ -124,7 +141,7 @@ export class EmployeesService {
           emergencyContactName: dto.emergencyContactName,
           emergencyContactPhone: dto.emergencyContactPhone,
           notes: dto.notes,
-          status: EmployeeStatus.ACTIVE,
+          status: profileStatus,
         },
         include: {
           user: {
@@ -206,6 +223,23 @@ export class EmployeesService {
 
     if (dto.status && dto.status !== EmployeeStatus.ACTIVE) {
       await this.ensureAnotherActiveAdmin(tenantId, employee.user.id);
+    }
+
+    const nextMembershipStatus =
+      dto.status === EmployeeStatus.ACTIVE
+        ? MembershipStatus.ACTIVE
+        : dto.status
+          ? MembershipStatus.INACTIVE
+          : membership.status;
+    const nextRole = dto.role ?? membership.role;
+    const currentlyCountsAsTenantUser =
+      membership.status === MembershipStatus.ACTIVE &&
+      tenantAssignableRoles.includes(membership.role);
+    const willCountAsTenantUser =
+      nextMembershipStatus === MembershipStatus.ACTIVE && tenantAssignableRoles.includes(nextRole);
+
+    if (willCountAsTenantUser && !currentlyCountsAsTenantUser) {
+      await this.ensureTenantUserLimit(tenantId, membership.id);
     }
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 12) : undefined;
@@ -353,10 +387,7 @@ export class EmployeesService {
       return;
     }
 
-    if (
-      !membership ||
-      !([Role.ADMIN] as Role[]).includes(membership.role)
-    ) {
+    if (!membership || !([Role.ADMIN] as Role[]).includes(membership.role)) {
       throw new ForbiddenException('Employee management permission is required.');
     }
   }
@@ -378,16 +409,23 @@ export class EmployeesService {
   }
 
   private ensureTenantRole(role: Role) {
-    if (
-      !(
-        [
-          Role.ADMIN,
-          Role.CASHIER,
-          Role.ORDER_TAKER,
-        ] as Role[]
-      ).includes(role)
-    ) {
+    if (!tenantAssignableRoles.includes(role)) {
       throw new BadRequestException('This role cannot be assigned to a tenant employee.');
+    }
+  }
+
+  private async ensureTenantUserLimit(tenantId: string, excludeMembershipId?: string) {
+    const activeTenantUsers = await this.prisma.membership.count({
+      where: {
+        tenantId,
+        ...(excludeMembershipId ? { id: { not: excludeMembershipId } } : {}),
+        status: MembershipStatus.ACTIVE,
+        role: { in: tenantAssignableRoles },
+      },
+    });
+
+    if (activeTenantUsers >= maxTenantUsers) {
+      throw new BadRequestException('Tenant user limit reached.');
     }
   }
 
@@ -407,13 +445,16 @@ export class EmployeesService {
   }
 
   private pickPermissions(dto: CreateEmployeeDto | UpdateEmployeeDto, role?: Role) {
-    const data = permissionKeys.reduce<Partial<Record<(typeof permissionKeys)[number], boolean>>>((permissions, key) => {
-      if (dto[key] !== undefined) {
-        permissions[key] = dto[key];
-      }
+    const data = permissionKeys.reduce<Partial<Record<(typeof permissionKeys)[number], boolean>>>(
+      (permissions, key) => {
+        if (dto[key] !== undefined) {
+          permissions[key] = dto[key];
+        }
 
-      return permissions;
-    }, {});
+        return permissions;
+      },
+      {},
+    );
 
     if (role === Role.ORDER_TAKER) {
       return {
@@ -440,10 +481,13 @@ export class EmployeesService {
   }
 
   private blankPermissions() {
-    return permissionKeys.reduce<Record<(typeof permissionKeys)[number], boolean>>((data, key) => {
-      data[key] = false;
-      return data;
-    }, {} as Record<(typeof permissionKeys)[number], boolean>);
+    return permissionKeys.reduce<Record<(typeof permissionKeys)[number], boolean>>(
+      (data, key) => {
+        data[key] = false;
+        return data;
+      },
+      {} as Record<(typeof permissionKeys)[number], boolean>,
+    );
   }
 
   private membershipSelect() {

@@ -9,12 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  closeCashSession,
-  getCashRegisters,
-  getCashSessions,
-  openCashSession,
-} from '@/lib/api';
+import { closeCashSession, getCashRegisters, getCashSessions, openCashSession } from '@/lib/api';
 import {
   getStatusVariant,
   translateCashMovementType,
@@ -52,8 +47,12 @@ export function CashSessionsView() {
     queryFn: () => getCashRegisters(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session),
   });
-  const openSessions = (sessionsQuery.data ?? []).filter((cashSession) => cashSession.status === 'OPEN');
-  const selectedOpenSession = openSessions.find((cashSession) => cashSession.id === selectedClosingSessionId);
+  const openSessions = (sessionsQuery.data ?? []).filter(
+    (cashSession) => cashSession.status === 'OPEN',
+  );
+  const selectedOpenSession = openSessions.find(
+    (cashSession) => cashSession.id === selectedClosingSessionId,
+  );
   const selectedRegisterOpenSession = openSessions.find(
     (cashSession) => cashSession.cashRegister.id === selectedRegisterId,
   );
@@ -71,7 +70,9 @@ export function CashSessionsView() {
   }, [registersQuery.data, selectedRegisterId, sessionsQuery.data]);
 
   useEffect(() => {
-    const firstOpenSession = sessionsQuery.data?.find((cashSession) => cashSession.status === 'OPEN');
+    const firstOpenSession = sessionsQuery.data?.find(
+      (cashSession) => cashSession.status === 'OPEN',
+    );
 
     if (!selectedClosingSessionId && firstOpenSession) {
       setSelectedClosingSessionId(firstOpenSession.id);
@@ -150,14 +151,17 @@ export function CashSessionsView() {
 
   return (
     <div className="space-y-6">
-      <ModuleHeader title="Sesiones de caja" description="Apertura, control y cierre de caja de Ferreteria RIVNU." />
+      <ModuleHeader
+        title="Sesiones de caja"
+        description="Apertura, control y cierre de caja de Ferreteria RIVNU."
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>Abrir caja</CardTitle>
           <CardDescription>
-            Declara el monto inicial y selecciona una caja fisica disponible. Puedes abrir varias cajas a la vez
-            si son cajas distintas.
+            Declara el monto inicial y selecciona una caja fisica disponible. Puedes abrir varias
+            cajas a la vez si son cajas distintas.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -179,7 +183,9 @@ export function CashSessionsView() {
                   return (
                     <option key={register.id} value={register.id}>
                       {register.name}
-                      {openSession ? ` - abierta por ${openSession.openedBy?.name ?? 'otro empleado'}` : ''}
+                      {openSession
+                        ? ` - abierta por ${openSession.openedBy?.name ?? 'otro empleado'}`
+                        : ''}
                     </option>
                   );
                 })}
@@ -201,7 +207,11 @@ export function CashSessionsView() {
             <div className="flex items-end">
               <Button
                 type="submit"
-                disabled={!selectedRegisterId || openMutation.isPending || Boolean(selectedRegisterOpenSession)}
+                disabled={
+                  !selectedRegisterId ||
+                  openMutation.isPending ||
+                  Boolean(selectedRegisterOpenSession)
+                }
               >
                 <DoorOpen className="h-4 w-4" />
                 Abrir caja
@@ -211,7 +221,8 @@ export function CashSessionsView() {
           {selectedRegisterOpenSession ? (
             <p className="mt-3 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
               {selectedRegisterOpenSession.cashRegister.name} ya esta abierta por{' '}
-              {selectedRegisterOpenSession.openedBy?.name ?? 'otro empleado'}. Selecciona otra caja fisica.
+              {selectedRegisterOpenSession.openedBy?.name ?? 'otro empleado'}. Selecciona otra caja
+              fisica.
             </p>
           ) : null}
           {message ? <p className="mt-3 text-sm text-muted-foreground">{message}</p> : null}
@@ -254,16 +265,16 @@ export function CashSessionsView() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="closingAmount">Monto contado para cierre</Label>
-                  <Input
-                    id="closingAmount"
-                    type="text"
-                    inputMode="decimal"
-                    value={closingAmount}
-                    onChange={(event) => setClosingAmount(sanitizeCurrencyInput(event.target.value))}
-                    onBlur={(event) => setClosingAmount(formatCurrencyInput(event.target.value))}
-                    onFocus={(event) => event.currentTarget.select()}
-                    required
-                  />
+                <Input
+                  id="closingAmount"
+                  type="text"
+                  inputMode="decimal"
+                  value={closingAmount}
+                  onChange={(event) => setClosingAmount(sanitizeCurrencyInput(event.target.value))}
+                  onBlur={(event) => setClosingAmount(formatCurrencyInput(event.target.value))}
+                  onFocus={(event) => event.currentTarget.select()}
+                  required
+                />
               </div>
               <div className="flex items-end">
                 <Button type="submit" variant="outline" disabled={closeMutation.isPending}>
@@ -325,13 +336,19 @@ export function CashSessionsView() {
                           {cashSession.closedAt ? formatDate(cashSession.closedAt) : '-'}
                         </td>
                         <td className="py-3 pr-4 text-right">
-                          {formatCurrency(Number(cashSession.expectedAmount ?? cashSession.openingAmount))}
+                          {formatCurrency(
+                            Number(cashSession.expectedAmount ?? cashSession.openingAmount),
+                          )}
                         </td>
                         <td className="py-3 pr-4 text-right">
-                          {cashSession.closingAmount ? formatCurrency(Number(cashSession.closingAmount)) : '-'}
+                          {cashSession.closingAmount
+                            ? formatCurrency(Number(cashSession.closingAmount))
+                            : '-'}
                         </td>
                         <td className="py-3 pr-4 text-right">
-                          {cashSession.difference ? formatCurrency(Number(cashSession.difference)) : '-'}
+                          {cashSession.difference
+                            ? formatCurrency(Number(cashSession.difference))
+                            : '-'}
                         </td>
                         <td className="py-3 text-right">
                           <Button
@@ -340,13 +357,20 @@ export function CashSessionsView() {
                             size="sm"
                             onClick={() => setExpandedSessionId(expanded ? null : cashSession.id)}
                           >
-                            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {expanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
                             {expanded ? 'Ocultar' : 'Ver'}
                           </Button>
                         </td>
                       </tr>
                       {expanded ? (
-                        <tr key={`${cashSession.id}-report`} className="border-b border-border bg-zinc-50/70">
+                        <tr
+                          key={`${cashSession.id}-report`}
+                          className="border-b border-border bg-zinc-50/70"
+                        >
                           <td colSpan={8} className="px-0 py-4">
                             <CashSessionReport cashSession={cashSession} />
                           </td>
@@ -364,7 +388,11 @@ export function CashSessionsView() {
   );
 }
 
-function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>> }) {
+function CashSessionReport({
+  cashSession,
+}: {
+  cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>>;
+}) {
   const movements = cashSession.movements ?? [];
   const salesOrders = cashSession.claimedSalesOrders ?? [];
   const invoices = cashSession.invoices ?? [];
@@ -376,29 +404,77 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
   return (
     <div className="space-y-4 px-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <ReportMetric label="Fondo inicial" value={formatCurrency(summary.opening)} />
-        <ReportMetric label="Ventas en efectivo" value={formatCurrency(summary.sales)} />
+        <ReportMetric
+          label="Fondo inicial"
+          value={formatCurrency(summary.opening)}
+          tone="opening"
+        />
+        <ReportMetric
+          label="Ventas en efectivo"
+          value={formatCurrency(summary.sales)}
+          tone="sale"
+        />
         <ReportMetric
           label="Facturas desde tickets"
           value={`${orderInvoices.length} / ${formatCurrency(sumInvoiceTotals(orderInvoices))}`}
+          tone="order"
         />
         <ReportMetric
           label="Ventas directas admin"
           value={`${directInvoices.length} / ${formatCurrency(sumInvoiceTotals(directInvoices))}`}
+          tone="admin"
         />
-        <ReportMetric label="Pagos efectivo" value={formatCurrency(paymentTotals.CASH)} />
-        <ReportMetric label="Pagos tarjeta" value={formatCurrency(paymentTotals.CARD)} />
-        <ReportMetric label="Pagos transferencia" value={formatCurrency(paymentTotals.TRANSFER)} />
-        <ReportMetric label="Entradas manuales" value={formatCurrency(summary.cashIn)} />
-        <ReportMetric label="Salidas y devoluciones" value={formatCurrency(summary.cashOut + summary.refunds)} />
-        <ReportMetric label="Ordenes cobradas" value={String(salesOrders.filter((order) => order.status === 'COMPLETED').length)} />
-        <ReportMetric label="Ajustes" value={formatCurrency(summary.adjustments)} />
-        <ReportMetric label="Esperado" value={formatCurrency(Number(cashSession.expectedAmount ?? summary.expected))} />
-        <ReportMetric label="Contado" value={cashSession.closingAmount ? formatCurrency(Number(cashSession.closingAmount)) : '-'} />
+        <ReportMetric
+          label="Pagos efectivo"
+          value={formatCurrency(paymentTotals.CASH)}
+          tone="cash"
+        />
+        <ReportMetric
+          label="Pagos tarjeta"
+          value={formatCurrency(paymentTotals.CARD)}
+          tone="card"
+        />
+        <ReportMetric
+          label="Pagos transferencia"
+          value={formatCurrency(paymentTotals.TRANSFER)}
+          tone="transfer"
+        />
+        <ReportMetric
+          label="Entradas manuales"
+          value={formatCurrency(summary.cashIn)}
+          tone="cashIn"
+        />
+        <ReportMetric
+          label="Salidas y devoluciones"
+          value={formatCurrency(summary.cashOut + summary.refunds)}
+          tone="cashOut"
+        />
+        <ReportMetric
+          label="Ordenes cobradas"
+          value={String(salesOrders.filter((order) => order.status === 'COMPLETED').length)}
+          tone="order"
+        />
+        <ReportMetric
+          label="Ajustes"
+          value={formatCurrency(summary.adjustments)}
+          tone="adjustment"
+        />
+        <ReportMetric
+          label="Esperado"
+          value={formatCurrency(Number(cashSession.expectedAmount ?? summary.expected))}
+          tone="expected"
+        />
+        <ReportMetric
+          label="Contado"
+          value={
+            cashSession.closingAmount ? formatCurrency(Number(cashSession.closingAmount)) : '-'
+          }
+          tone="counted"
+        />
         <ReportMetric
           label="Diferencia"
           value={cashSession.difference ? formatCurrency(Number(cashSession.difference)) : '-'}
-          tone={Number(cashSession.difference ?? 0) === 0 ? 'neutral' : 'warning'}
+          tone={Number(cashSession.difference ?? 0) === 0 ? 'balanced' : 'warning'}
         />
       </div>
 
@@ -420,14 +496,20 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
               invoices.map((invoice) => (
                 <tr key={invoice.id} className="border-b border-border last:border-b-0">
                   <td className="px-3 py-2">
-                    {invoice.salesOrder ? `Ticket ${invoice.salesOrder.orderNumber}` : 'Venta directa admin'}
+                    {invoice.salesOrder
+                      ? `Ticket ${invoice.salesOrder.orderNumber}`
+                      : 'Venta directa admin'}
                   </td>
                   <td className="px-3 py-2 font-medium">{invoice.invoiceNumber}</td>
                   <td className="px-3 py-2">{invoice.customer?.name ?? 'Consumidor final'}</td>
                   <td className="px-3 py-2">{invoice.issuedBy?.name ?? 'Empleado'}</td>
                   <td className="px-3 py-2">{translatePaymentMethod(invoice.paymentMethod)}</td>
-                  <td className="px-3 py-2 text-right">{formatCurrency(Number(invoice.paidAmount))}</td>
-                  <td className="px-3 py-2 text-right font-medium">{formatCurrency(Number(invoice.total))}</td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(Number(invoice.paidAmount))}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium">
+                    {formatCurrency(Number(invoice.total))}
+                  </td>
                 </tr>
               ))
             ) : (
@@ -460,11 +542,15 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
                   <td className="px-3 py-2 font-medium">{order.orderNumber}</td>
                   <td className="px-3 py-2">{order.customer?.name ?? 'Consumidor final'}</td>
                   <td className="px-3 py-2">
-                    <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
+                    <Badge variant={getStatusVariant(order.status)}>
+                      {translateStatus(order.status)}
+                    </Badge>
                   </td>
                   <td className="px-3 py-2">{order.createdBy.name}</td>
                   <td className="px-3 py-2">{order.invoice?.invoiceNumber ?? '-'}</td>
-                  <td className="px-3 py-2 text-right font-medium">{formatCurrency(Number(order.total))}</td>
+                  <td className="px-3 py-2 text-right font-medium">
+                    {formatCurrency(Number(order.total))}
+                  </td>
                 </tr>
               ))
             ) : (
@@ -495,10 +581,17 @@ function CashSessionReport({ cashSession }: { cashSession: NonNullable<Awaited<R
               movements.map((movement) => (
                 <tr key={movement.id} className="border-b border-border last:border-b-0">
                   <td className="px-3 py-2">{formatDate(movement.createdAt)}</td>
-                  <td className="px-3 py-2">{translateCashMovementType(movement.type)}</td>
+                  <td className="px-3 py-2">
+                    <span className={getCashMovementPillClass(movement.type)}>
+                      {translateCashMovementType(movement.type)}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">{movement.user?.name ?? 'Empleado'}</td>
                   <td className="px-3 py-2">
-                    {movement.invoice?.invoiceNumber ?? movement.reference ?? movement.reason ?? '-'}
+                    {movement.invoice?.invoiceNumber ??
+                      movement.reference ??
+                      movement.reason ??
+                      '-'}
                   </td>
                   <td className="px-3 py-2">{translatePaymentMethod(movement.method)}</td>
                   <td className="px-3 py-2 text-right font-medium">
@@ -527,13 +620,131 @@ function ReportMetric({
 }: {
   label: string;
   value: string;
-  tone?: 'neutral' | 'warning';
+  tone?: ReportMetricTone;
 }) {
+  const classes = reportMetricClasses[tone] ?? reportMetricClasses.neutral;
+
   return (
-    <div className="rounded-md border border-border bg-white p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={tone === 'warning' ? 'mt-1 font-semibold text-warning' : 'mt-1 font-semibold'}>{value}</p>
+    <div className={`rounded-md border p-3 ${classes.card}`}>
+      <p className={`text-xs ${classes.label}`}>{label}</p>
+      <p className={`mt-1 font-semibold ${classes.value}`}>{value}</p>
     </div>
+  );
+}
+
+type ReportMetricTone =
+  | 'neutral'
+  | 'opening'
+  | 'sale'
+  | 'order'
+  | 'admin'
+  | 'cash'
+  | 'card'
+  | 'transfer'
+  | 'cashIn'
+  | 'cashOut'
+  | 'adjustment'
+  | 'expected'
+  | 'counted'
+  | 'balanced'
+  | 'warning';
+
+const reportMetricClasses: Record<
+  ReportMetricTone,
+  { card: string; label: string; value: string }
+> = {
+  neutral: {
+    card: 'border-border bg-white',
+    label: 'text-muted-foreground',
+    value: 'text-zinc-950',
+  },
+  opening: {
+    card: 'border-sky-200 bg-sky-50',
+    label: 'text-sky-700',
+    value: 'text-sky-950',
+  },
+  sale: {
+    card: 'border-emerald-200 bg-emerald-50',
+    label: 'text-emerald-700',
+    value: 'text-emerald-950',
+  },
+  order: {
+    card: 'border-[#f36c10]/25 bg-[#f36c10]/10',
+    label: 'text-[#9a3f05]',
+    value: 'text-[#7a3103]',
+  },
+  admin: {
+    card: 'border-violet-200 bg-violet-50',
+    label: 'text-violet-700',
+    value: 'text-violet-950',
+  },
+  cash: {
+    card: 'border-lime-200 bg-lime-50',
+    label: 'text-lime-700',
+    value: 'text-lime-950',
+  },
+  card: {
+    card: 'border-indigo-200 bg-indigo-50',
+    label: 'text-indigo-700',
+    value: 'text-indigo-950',
+  },
+  transfer: {
+    card: 'border-cyan-200 bg-cyan-50',
+    label: 'text-cyan-700',
+    value: 'text-cyan-950',
+  },
+  cashIn: {
+    card: 'border-teal-200 bg-teal-50',
+    label: 'text-teal-700',
+    value: 'text-teal-950',
+  },
+  cashOut: {
+    card: 'border-rose-200 bg-rose-50',
+    label: 'text-rose-700',
+    value: 'text-rose-950',
+  },
+  adjustment: {
+    card: 'border-amber-200 bg-amber-50',
+    label: 'text-amber-700',
+    value: 'text-amber-950',
+  },
+  expected: {
+    card: 'border-zinc-300 bg-zinc-50',
+    label: 'text-zinc-600',
+    value: 'text-zinc-950',
+  },
+  counted: {
+    card: 'border-blue-200 bg-blue-50',
+    label: 'text-blue-700',
+    value: 'text-blue-950',
+  },
+  balanced: {
+    card: 'border-emerald-200 bg-emerald-50',
+    label: 'text-emerald-700',
+    value: 'text-emerald-950',
+  },
+  warning: {
+    card: 'border-warning/40 bg-warning/10',
+    label: 'text-warning',
+    value: 'text-warning',
+  },
+};
+
+function getCashMovementPillClass(type: string) {
+  const classes: Record<string, string> = {
+    OPENING: 'inline-flex rounded-full bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700',
+    SALE_PAYMENT:
+      'inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700',
+    CASH_IN: 'inline-flex rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700',
+    CASH_OUT: 'inline-flex rounded-full bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700',
+    REFUND: 'inline-flex rounded-full bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700',
+    CLOSING: 'inline-flex rounded-full bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700',
+    ADJUSTMENT: 'inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700',
+  };
+
+  return (
+    classes[type] ??
+    'inline-flex rounded-full bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700'
   );
 }
 
@@ -570,7 +781,9 @@ function getInvoicePaymentTotals(invoices: ReportInvoice[]) {
   return totals;
 }
 
-function getCashSessionSummary(cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>>) {
+function getCashSessionSummary(
+  cashSession: NonNullable<Awaited<ReturnType<typeof closeCashSession>>>,
+) {
   const summary = {
     opening: 0,
     sales: 0,
