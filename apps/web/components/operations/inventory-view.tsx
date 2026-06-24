@@ -35,7 +35,7 @@ export function InventoryView() {
   }
 
   const lowStock = (productsQuery.data ?? []).filter(
-    (product) => product.trackInventory && product.stock <= product.minStock,
+    (product) => product.trackInventory && getAvailableStock(product) <= product.minStock,
   );
 
   return (
@@ -126,4 +126,8 @@ export function InventoryView() {
       </Card>
     </div>
   );
+}
+
+function getAvailableStock(product: { stock: number; reservedStock: number }) {
+  return Math.max(product.stock - product.reservedStock, 0);
 }

@@ -127,7 +127,8 @@ export function ProductsView() {
         <CardContent>
           <div className="space-y-3 md:hidden">
             {(productsQuery.data ?? []).map((product) => {
-              const lowStock = product.trackInventory && product.stock <= product.minStock;
+              const availableStock = getAvailableStock(product);
+              const lowStock = product.trackInventory && availableStock <= product.minStock;
               return (
                 <div key={product.id} className="rounded-md border border-border p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -141,7 +142,7 @@ export function ProductsView() {
                     <span className="font-semibold">{formatCurrency(Number(product.price))}</span>
                     {product.trackInventory ? (
                       <Badge variant={lowStock ? 'danger' : 'success'}>
-                        {product.stock} / min {product.minStock}
+                        {availableStock} disp. / {product.reservedStock} res.
                       </Badge>
                     ) : (
                       <Badge variant="outline">Servicio</Badge>
@@ -167,7 +168,8 @@ export function ProductsView() {
             </TableHeader>
             <TableBody>
               {(productsQuery.data ?? []).map((product) => {
-                const lowStock = product.trackInventory && product.stock <= product.minStock;
+                const availableStock = getAvailableStock(product);
+                const lowStock = product.trackInventory && availableStock <= product.minStock;
                 return (
                   <TableRow key={product.id}>
                     <TableCell>
@@ -184,9 +186,14 @@ export function ProductsView() {
                     </TableCell>
                     <TableCell>
                       {product.trackInventory ? (
-                        <Badge variant={lowStock ? 'danger' : 'success'}>
-                          {product.stock} / min {product.minStock}
-                        </Badge>
+                        <div>
+                          <Badge variant={lowStock ? 'danger' : 'success'}>
+                            {availableStock} disp. / {product.reservedStock} res.
+                          </Badge>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Total {product.stock} / min {product.minStock}
+                          </p>
+                        </div>
                       ) : (
                         <Badge variant="outline">Servicio</Badge>
                       )}
@@ -245,4 +252,8 @@ export function ProductsView() {
       </Card>
     </div>
   );
+}
+
+function getAvailableStock(product: { stock: number; reservedStock: number }) {
+  return Math.max(product.stock - product.reservedStock, 0);
 }

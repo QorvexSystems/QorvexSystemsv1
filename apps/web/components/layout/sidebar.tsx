@@ -13,17 +13,19 @@ import {
   ScrollText,
   ShoppingCart,
   Settings,
+  ClipboardPlus,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getSession, type AuthSession } from '@/lib/auth-session';
-import { isAdminSession } from '@/lib/authorization';
+import { canTakeOrders, isAdminSession } from '@/lib/authorization';
 import { cn } from '@/lib/utils';
 
 export const navigation: Array<{ name: string; href: string; icon: LucideIcon; primary?: boolean }> = [
   { name: 'Panel', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Caja POS', href: '/pos', icon: ShoppingCart, primary: true },
+  { name: 'Toma de ordenes', href: '/orders', icon: ClipboardPlus, primary: true },
   { name: 'Productos', href: '/products', icon: Package },
   { name: 'Clientes', href: '/customers', icon: Users },
   { name: 'Facturas', href: '/invoices', icon: FileText, primary: true },
@@ -141,6 +143,14 @@ export function SidebarContent({
 export function getVisibleNavigation(session: AuthSession | null) {
   if (isAdminSession(session)) {
     return navigation;
+  }
+
+  if (canTakeOrders(session) && session?.permissions.canUsePos) {
+    return navigation.filter((item) => item.href === '/orders' || item.href === '/pos');
+  }
+
+  if (canTakeOrders(session)) {
+    return navigation.filter((item) => item.href === '/orders');
   }
 
   if (session?.permissions.canUsePos) {

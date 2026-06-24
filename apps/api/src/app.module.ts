@@ -13,6 +13,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { OrdersModule } from './modules/orders/orders.module';
 import { PosModule } from './modules/pos/pos.module';
 import { ProductsModule } from './modules/products/products.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
@@ -39,6 +40,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ProductsModule,
     InventoryModule,
     InvoicesModule,
+    OrdersModule,
     PosModule,
     DashboardModule,
     AuditModule,

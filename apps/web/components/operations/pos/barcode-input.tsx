@@ -1,7 +1,7 @@
 'use client';
 
 import { Barcode, Camera, Search, ScanLine, X } from 'lucide-react';
-import { FormEvent, RefObject } from 'react';
+import { ChangeEvent, FormEvent, RefObject, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -13,12 +13,17 @@ type BarcodeInputProps = {
   barcodeInputRef: RefObject<HTMLInputElement | null>;
   videoRef: RefObject<HTMLVideoElement | null>;
   isPending: boolean;
+  keepFocus?: boolean;
   onBarcodeChange: (value: string) => void;
   onSubmit: (code: string) => void;
   onEnableScanner: () => void;
   onDisableScanner: () => void;
   onStartCamera: () => void;
 };
+
+const autoSubmitMinLength = 6;
+const autoSubmitLongCodeLength = 12;
+const autoSubmitDelayMs = 220;
 
 export function BarcodeInput({
   barcode,
@@ -28,18 +33,64 @@ export function BarcodeInput({
   barcodeInputRef,
   videoRef,
   isPending,
+  keepFocus = false,
   onBarcodeChange,
   onSubmit,
   onEnableScanner,
   onDisableScanner,
   onStartCamera,
 }: BarcodeInputProps) {
+  const lastSubmittedCodeRef = useRef('');
+
+  useEffect(() => {
+    const code = normalizeScannedCode(barcode);
+
+    if (!code) {
+      lastSubmittedCodeRef.current = '';
+      return;
+    }
+
+    const canAutoSubmit = code.length >= autoSubmitLongCodeLength || (scannerEnabled && code.length >= autoSubmitMinLength);
+
+    if (!canAutoSubmit || cameraActive || isPending) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      const nextCode = normalizeScannedCode(barcode);
+
+      const nextCanAutoSubmit =
+        nextCode.length >= autoSubmitLongCodeLength || (scannerEnabled && nextCode.length >= autoSubmitMinLength);
+
+      if (!nextCode || !nextCanAutoSubmit || nextCode === lastSubmittedCodeRef.current) {
+        return;
+      }
+
+      lastSubmittedCodeRef.current = nextCode;
+      onSubmit(nextCode);
+    }, autoSubmitDelayMs);
+
+    return () => window.clearTimeout(timeout);
+  }, [barcode, cameraActive, isPending, onSubmit, scannerEnabled]);
+
   function submitBarcode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const code = barcode.trim();
-    if (code) {
-      onSubmit(code);
+    submitCode(barcode);
+  }
+
+  function submitCode(value: string) {
+    const code = normalizeScannedCode(value);
+
+    if (!code || code === lastSubmittedCodeRef.current) {
+      return;
     }
+
+    lastSubmittedCodeRef.current = code;
+    onSubmit(code);
+  }
+
+  function handleBarcodeChange(event: ChangeEvent<HTMLInputElement>) {
+    onBarcodeChange(event.target.value);
   }
 
   return (
@@ -67,7 +118,12 @@ export function BarcodeInput({
           <Input
             ref={barcodeInputRef}
             value={barcode}
-            onChange={(event) => onBarcodeChange(event.target.value)}
+            onChange={handleBarcodeChange}
+            onBlur={() => {
+              if (keepFocus && scannerEnabled && !cameraActive) {
+                window.setTimeout(() => barcodeInputRef.current?.focus(), 40);
+              }
+            }}
             className="pl-9"
             placeholder="Escanea o escribe codigo QR o codigo de barras"
             autoComplete="off"
@@ -86,4 +142,12 @@ export function BarcodeInput({
       {scannerMessage ? <p className="mt-2 text-sm text-muted-foreground">{scannerMessage}</p> : null}
     </div>
   );
+}
+
+function normalizeScannedCode(value: string) {
+  return value
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .trim()
+    .replace(/\s+/g, '');
 }

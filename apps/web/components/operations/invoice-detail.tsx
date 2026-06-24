@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
 import Image from 'next/image';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getInvoice } from '@/lib/api';
@@ -28,10 +28,12 @@ export function InvoiceDetail({
     enabled: Boolean(session),
   });
   const invoice = invoiceQuery.data;
+  const autoPrintTriggeredRef = useRef(false);
 
   useEffect(() => {
-    if (printMode && autoPrint && invoice) {
-      window.setTimeout(() => window.print(), 350);
+    if (printMode && autoPrint && invoice && !autoPrintTriggeredRef.current) {
+      autoPrintTriggeredRef.current = true;
+      window.setTimeout(() => window.print(), 500);
     }
   }, [autoPrint, invoice, printMode]);
 

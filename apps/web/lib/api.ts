@@ -31,6 +31,7 @@ export type DashboardSummary = {
     name: string;
     sku: string | null;
     stock: number;
+    reservedStock: number;
     minStock: number;
   }>;
   recentCashMovements: CashMovement[];
@@ -103,6 +104,7 @@ export type Product = {
   taxRate: string;
   trackInventory: boolean;
   stock: number;
+  reservedStock: number;
   minStock: number;
   status: string;
   category?: {
@@ -157,6 +159,19 @@ export type Invoice = {
     name: string;
     email: string;
   } | null;
+  payments?: Array<{
+    id: string;
+    method: string;
+    amount: string | number;
+    status: string;
+    paidAt: string | null;
+    createdAt: string;
+  }>;
+  salesOrder?: {
+    id: string;
+    orderNumber: string;
+    status: string;
+  } | null;
   items: Array<{
     id: string;
     description: string;
@@ -191,6 +206,87 @@ export type PosSalePayload = {
   paymentMethod: string;
   amountReceived?: number;
   cashSessionId?: string;
+  orderId?: string;
+  items?: Array<{
+    productId: string;
+    quantity: number;
+  }>;
+};
+
+export type SalesOrder = {
+  id: string;
+  tenantId: string;
+  customerId: string | null;
+  orderNumber: string;
+  status: string;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  notes: string | null;
+  createdById: string;
+  completedById: string | null;
+  claimedById: string | null;
+  claimedCashSessionId: string | null;
+  invoiceId: string | null;
+  sentToCashierAt: string | null;
+  claimedAt: string | null;
+  claimExpiresAt: string | null;
+  releasedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: Customer | null;
+  createdBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  completedBy: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  claimedBy: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  claimedCashSession: {
+    id: string;
+    cashRegister: {
+      id: string;
+      name: string;
+      location: string | null;
+    };
+  } | null;
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    total: string;
+  } | null;
+  items: Array<{
+    id: string;
+    salesOrderId: string;
+    productId: string | null;
+    sku: string | null;
+    barcode: string | null;
+    description: string;
+    quantity: string;
+    reservedQuantity: number;
+    unitPrice: string;
+    taxRate: string;
+    taxTotal: string;
+    subtotal: string;
+    total: string;
+    product: Product | null;
+  }>;
+};
+
+export type CreateSalesOrderPayload = {
+  customerId?: string;
+  notes?: string;
   items: Array<{
     productId: string;
     quantity: number;
@@ -228,6 +324,7 @@ export type Employee = {
       canManageFiscalSequences: boolean;
       canViewCashLogs: boolean;
       canReprintReceipt: boolean;
+      canTakeOrders: boolean;
     }>;
   };
 };
@@ -257,6 +354,8 @@ export type CashSession = {
     email: string;
   } | null;
   movements?: CashSessionMovement[];
+  claimedSalesOrders?: SalesOrder[];
+  invoices?: Invoice[];
 };
 
 export type CashSessionMovement = {
@@ -355,6 +454,12 @@ export type ImportBatch = {
   }>;
 };
 
+export type ProductImageUploadResult = {
+  imageUrl: string;
+  path: string;
+  bucket: string;
+};
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
 if (!apiUrl) {
@@ -366,22 +471,29 @@ const apiMessageTranslations: Record<string, string> = {
   'Invalid or expired token.': 'La sesion no es valida o expiro.',
   'User is not active.': 'El usuario no esta activo.',
   'Missing x-tenant-id header.': 'Falta identificar la empresa de trabajo.',
-  'Missing x-tenant-id header for tenant-scoped request.': 'Falta identificar la empresa de trabajo.',
+  'Missing x-tenant-id header for tenant-scoped request.':
+    'Falta identificar la empresa de trabajo.',
   'Authenticated user is required.': 'Debes iniciar sesion para continuar.',
   'User does not belong to this tenant.': 'Tu usuario no pertenece a esta empresa.',
-  'Role checks require authenticated tenant context.': 'No se pudo validar el rol para esta empresa.',
+  'Role checks require authenticated tenant context.':
+    'No se pudo validar el rol para esta empresa.',
   'Insufficient role for this operation.': 'Tu rol no permite realizar esta operacion.',
   'Invalid credentials.': 'Credenciales invalidas.',
   'Tenant not found.': 'Empresa no encontrada.',
   'This user already belongs to this tenant.': 'Este usuario ya pertenece a esta empresa.',
+  'Tenant user limit reached.': 'La empresa ya tiene el limite de 4 usuarios activos.',
   'Employee not found for tenant.': 'Empleado no encontrado en esta empresa.',
   'Employee membership not found.': 'No se encontro la membresia del empleado.',
   'Employee management permission is required.': 'Necesitas permiso para gestionar empleados.',
-  'This role cannot be assigned to a tenant employee.': 'Este rol no puede asignarse a un empleado de la empresa.',
-  'At least one active admin must remain for the tenant.': 'Debe quedar al menos un administrador activo en la empresa.',
+  'This role cannot be assigned to a tenant employee.':
+    'Este rol no puede asignarse a un empleado de la empresa.',
+  'At least one active admin must remain for the tenant.':
+    'Debe quedar al menos un administrador activo en la empresa.',
   'Customer not found for tenant.': 'Cliente no encontrado en esta empresa.',
   'Product not found for tenant.': 'Producto no encontrado en esta empresa.',
   'Product category not found for tenant.': 'Categoria de producto no encontrada en esta empresa.',
+  'Product code already exists for this tenant.':
+    'Ese codigo de producto ya existe en esta empresa.',
   'No active product found for barcode.': 'No se encontro un producto activo con ese codigo.',
   'Inventory movement would leave product stock below zero.':
     'El movimiento dejaria el inventario del producto por debajo de cero.',
@@ -405,7 +517,8 @@ const apiMessageTranslations: Record<string, string> = {
   'This cash register already has an open session.':
     'Esta caja ya tiene una sesion abierta. Selecciona otra caja o cierra la sesion abierta.',
   'Cash register not found for tenant.': 'Caja no encontrada en esta empresa.',
-  'Open cash session not found for tenant.': 'No se encontro una sesion de caja abierta en esta empresa.',
+  'Open cash session not found for tenant.':
+    'No se encontro una sesion de caja abierta en esta empresa.',
   'Manual cash movements must be cash in, cash out, or adjustment.':
     'Los movimientos manuales de caja deben ser entrada, salida o ajuste.',
   'Employee does not have permission for this cash operation.':
@@ -415,14 +528,62 @@ const apiMessageTranslations: Record<string, string> = {
   'An open cash session for this cashier is required to complete POS sales.':
     'Debes abrir una caja con tu usuario antes de completar ventas.',
   'Employee does not have POS access.': 'Tu usuario no tiene permiso para usar la caja.',
-  'Employee profile must be active to use POS.': 'El perfil del empleado debe estar activo para usar el POS.',
+  'Employee profile must be active to use POS.':
+    'El perfil del empleado debe estar activo para usar el POS.',
+  'Cashier can only charge orders sent to cashier.':
+    'El cajero solo puede cobrar ordenes enviadas a caja.',
+  'Only admins can create direct POS sales.':
+    'Solo el administrador puede crear ventas directas desde el POS.',
   'Amount received cannot be negative.': 'El monto recibido no puede ser negativo.',
-  'Cash received must cover the invoice total.': 'El efectivo recibido debe cubrir el total de la factura.',
-  'Payment amount must cover the invoice total.': 'El monto pagado debe cubrir el total de la factura.',
+  'Cash received must cover the invoice total.':
+    'El efectivo recibido debe cubrir el total de la factura.',
+  'Payment amount must cover the invoice total.':
+    'El monto pagado debe cubrir el total de la factura.',
+  'Sales order must include at least one item.': 'La orden debe incluir al menos un producto.',
+  'Pending sales order not found for tenant.': 'Orden pendiente no encontrada en esta empresa.',
+  'Sales order not found for tenant.': 'Orden no encontrada en esta empresa.',
+  'Sales order contains an unavailable product.': 'La orden contiene un producto no disponible.',
+  'One or more order products do not belong to tenant.':
+    'Uno o mas productos de la orden no pertenecen a esta empresa.',
+  'Invalid sales order status.': 'Estado de orden invalido.',
+  'Employee does not have permission to take orders.':
+    'Tu usuario no tiene permiso para tomar ordenes.',
+  'Employee does not have permission to view sales orders.':
+    'Tu usuario no tiene permiso para ver ordenes.',
+  'Employee does not have permission to view this sales order.':
+    'Tu usuario no tiene permiso para ver esta orden.',
+  'Employee does not have permission to cancel this sales order.':
+    'Tu usuario no tiene permiso para cancelar esta orden.',
+  'Employee profile must be active to take orders.':
+    'El perfil del empleado debe estar activo para tomar ordenes.',
+  'Only pending sales orders can be cancelled.': 'Solo las ordenes pendientes pueden cancelarse.',
+  'Sales order has already been completed.': 'Esta orden ya fue cobrada.',
+  'Sales order has already been cancelled.': 'Esta orden ya fue cancelada.',
+  'Sales order is already claimed by another cashier.':
+    'Esta orden ya esta siendo atendida por otro cajero.',
+  'Only claimed sales orders can be released.': 'Solo se pueden liberar ordenes tomadas por caja.',
+  'Employee does not have permission to release this sales order.':
+    'Tu usuario no puede liberar esta orden.',
+  'An open cash session for this cashier is required to claim sales orders.':
+    'Debes abrir caja antes de tomar una orden para cobrar.',
+  'Close pending claimed sales orders before closing cash session.':
+    'Libera o cobra las ordenes tomadas antes de cerrar la caja.',
+  'Could not reserve fiscal sequence.':
+    'No se pudo reservar la secuencia fiscal. Intenta nuevamente.',
   'Could not generate a unique barcode.': 'No se pudo generar un codigo de barras unico.',
+  'Could not generate a unique product code.': 'No se pudo generar un codigo de producto unico.',
   'Product must have a barcode before printing labels.':
     'El producto debe tener codigo de barras antes de imprimir etiquetas.',
   'Barcode already exists for this tenant.': 'Ese codigo de barras ya existe en esta empresa.',
+  'Product image file is required.': 'Debes seleccionar una imagen de producto.',
+  'Product image must be JPG, PNG, WEBP, or GIF.': 'La imagen debe ser JPG, PNG, WEBP o GIF.',
+  'Product image cannot be larger than 5 MB.': 'La imagen no puede pesar mas de 5 MB.',
+  'Product image storage is not configured.': 'El almacenamiento de imagenes no esta configurado.',
+  'Product image could not be uploaded.': 'No se pudo subir la imagen del producto.',
+  'Import file is required.': 'Debes seleccionar un archivo de importacion.',
+  'Import file cannot be larger than 10 MB.':
+    'El archivo de importacion no puede pesar mas de 10 MB.',
+  'Import file does not contain sheets.': 'El archivo no contiene hojas para importar.',
 };
 
 async function fetchJson<T>(path: string, options?: RequestInit) {
@@ -441,6 +602,27 @@ async function fetchJson<T>(path: string, options?: RequestInit) {
 
   if (response.status === 204) {
     return null as T;
+  }
+
+  const body = await response.text();
+
+  if (!body.trim()) {
+    return null as T;
+  }
+
+  return JSON.parse(body) as T;
+}
+
+async function fetchFormData<T>(path: string, formData: FormData, headers: Record<string, string>) {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(getApiErrorMessage(body, response.status));
   }
 
   const body = await response.text();
@@ -481,6 +663,11 @@ function translateApiMessage(message: string) {
   if (message.startsWith('Insufficient stock for ') && message.endsWith('.')) {
     const productName = message.replace('Insufficient stock for ', '').replace(/\.$/, '');
     return `Stock insuficiente para ${productName}.`;
+  }
+
+  if (message.startsWith('Insufficient available stock for ') && message.endsWith('.')) {
+    const productName = message.replace('Insufficient available stock for ', '').replace(/\.$/, '');
+    return `Stock disponible insuficiente para ${productName}.`;
   }
 
   return message;
@@ -573,6 +760,76 @@ export function getPosProductByBarcode(tenantId: string, accessToken: string, ba
   });
 }
 
+export function getSalesOrders(tenantId: string, accessToken: string, status?: string) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return fetchJson<SalesOrder[]>(`/orders${query}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  payload: CreateSalesOrderPayload,
+) {
+  return fetchJson<SalesOrder>('/orders', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function claimSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  orderId: string,
+  payload: { cashSessionId?: string },
+) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/claim`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function releaseSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/release`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function cancelSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  orderId: string,
+  reason?: string,
+) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/cancel`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function searchOrderProducts(tenantId: string, accessToken: string, q: string) {
+  return fetchJson<Product[]>(`/orders/products/search?q=${encodeURIComponent(q)}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getOrderProductByBarcode(tenantId: string, accessToken: string, barcode: string) {
+  return fetchJson<Product>(`/orders/products/barcode/${encodeURIComponent(barcode)}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
 export function createProduct(
   tenantId: string,
   accessToken: string,
@@ -628,6 +885,17 @@ export function getProductLabel(tenantId: string, accessToken: string, productId
   });
 }
 
+export function uploadProductImage(tenantId: string, accessToken: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return fetchFormData<ProductImageUploadResult>(
+    '/products/image',
+    formData,
+    tenantHeaders(tenantId, accessToken),
+  );
+}
+
 export function getInventoryMovements(tenantId: string, accessToken: string) {
   return fetchJson<InventoryMovement[]>('/inventory/movements', {
     headers: tenantHeaders(tenantId, accessToken),
@@ -646,7 +914,11 @@ export function getInvoice(tenantId: string, accessToken: string, invoiceId: str
   });
 }
 
-export function createInvoice(tenantId: string, accessToken: string, payload: CreateInvoicePayload) {
+export function createInvoice(
+  tenantId: string,
+  accessToken: string,
+  payload: CreateInvoicePayload,
+) {
   return fetchJson<Invoice>('/invoices', {
     method: 'POST',
     headers: tenantHeaders(tenantId, accessToken),
@@ -764,4 +1036,15 @@ export function getImportBatches(tenantId: string, accessToken: string) {
   return fetchJson<ImportBatch[]>('/imports', {
     headers: tenantHeaders(tenantId, accessToken),
   });
+}
+
+export function importProductsFile(tenantId: string, accessToken: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return fetchFormData<ImportBatch>(
+    '/imports/products',
+    formData,
+    tenantHeaders(tenantId, accessToken),
+  );
 }

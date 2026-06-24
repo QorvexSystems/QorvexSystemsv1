@@ -1,18 +1,25 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save } from 'lucide-react';
+import { Save, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createProduct, getProduct, updateProduct } from '@/lib/api';
+import { createProduct, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
 import { ModuleHeader } from './module-header';
 import { BarcodeCameraScanner } from './barcode-camera-scanner';
+import {
+  clearCurrencyInput,
+  formatCurrencyInput,
+  formatCurrencyInputFromNumber,
+  parseCurrencyInput,
+  sanitizeCurrencyInput,
+} from './pos/currency-input';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 type ProductFormState = {
@@ -38,8 +45,8 @@ const defaultState: ProductFormState = {
   imageUrl: '',
   brand: '',
   unit: 'UNIT',
-  price: '0',
-  cost: '0',
+  price: clearCurrencyInput(),
+  cost: clearCurrencyInput(),
   taxRate: '0.18',
   stock: '0',
   minStock: '0',
@@ -51,6 +58,7 @@ export function ProductForm({ productId }: { productId?: string }) {
   const session = useCurrentSession();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<ProductFormState>(defaultState);
   const [loadedProductId, setLoadedProductId] = useState<string | null>(null);
   const [imagePreviewFailed, setImagePreviewFailed] = useState(false);
@@ -71,8 +79,10 @@ export function ProductForm({ productId }: { productId?: string }) {
         imageUrl: productQuery.data.imageUrl ?? '',
         brand: productQuery.data.brand ?? '',
         unit: productQuery.data.unit,
-        price: productQuery.data.salePrice || productQuery.data.price,
-        cost: productQuery.data.cost ?? '0',
+        price: formatCurrencyInputFromNumber(
+          Number(productQuery.data.salePrice ?? productQuery.data.price ?? 0),
+        ),
+        cost: formatCurrencyInputFromNumber(Number(productQuery.data.cost ?? 0)),
         taxRate: productQuery.data.taxRate,
         stock: String(productQuery.data.stock),
         minStock: String(productQuery.data.minStock),
@@ -95,8 +105,8 @@ export function ProductForm({ productId }: { productId?: string }) {
         imageUrl: form.imageUrl || undefined,
         brand: form.brand || undefined,
         unit: form.unit,
-        price: Number(form.price),
-        cost: Number(form.cost),
+        price: parseCurrencyInput(form.price),
+        cost: parseCurrencyInput(form.cost),
         taxRate: Number(form.taxRate),
         stock: Number(form.stock),
         minStock: Number(form.minStock),
@@ -117,6 +127,25 @@ export function ProductForm({ productId }: { productId?: string }) {
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : 'No se pudo guardar el producto.');
+    },
+  });
+
+  const imageUploadMutation = useMutation({
+    mutationFn: (file: File) => {
+      if (!session) {
+        throw new Error('Sesion requerida.');
+      }
+
+      return uploadProductImage(session.tenantId, session.accessToken, file);
+    },
+    onSuccess: (result) => {
+      updateField('imageUrl', result.imageUrl);
+      toast.success('Imagen cargada', {
+        description: 'La imagen del producto se subio a Supabase.',
+      });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'No se pudo subir la imagen.');
     },
   });
 
@@ -147,22 +176,32 @@ export function ProductForm({ productId }: { productId?: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Ficha del producto</CardTitle>
-          <CardDescription>Qorvex valida duplicados de SKU y codigo de barras dentro del tenant RIVNU.</CardDescription>
+          <CardDescription>
+            Qorvex valida duplicados de SKU y codigo de barras dentro del tenant RIVNU.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
-            <Field label="Nombre">
-              <Input value={form.name} onChange={(event) => updateField('name', event.target.value)} required />
+            <Field label="Nombre" required>
+              <Input
+                value={form.name}
+                onChange={(event) => updateField('name', event.target.value)}
+                required
+              />
             </Field>
-            <Field label="SKU">
-              <Input value={form.sku} onChange={(event) => updateField('sku', event.target.value)} />
+            <Field label="Codigo de producto">
+              <Input
+                value={form.sku}
+                onChange={(event) => updateField('sku', event.target.value)}
+                placeholder="Automatico"
+              />
             </Field>
             <Field label="Codigo de barras">
               <div className="space-y-2">
                 <Input
                   value={form.barcode}
                   onChange={(event) => updateField('barcode', event.target.value)}
-                  placeholder="Escanea con pistola USB o escribe el codigo"
+                  placeholder="Automatico"
                   autoComplete="off"
                 />
                 <BarcodeCameraScanner onDetected={(value) => updateField('barcode', value)} />
@@ -170,15 +209,43 @@ export function ProductForm({ productId }: { productId?: string }) {
             </Field>
             <Field label="Imagen del producto">
               <div className="space-y-2">
-                <Input
-                  value={form.imageUrl}
-                  onChange={(event) => updateField('imageUrl', event.target.value)}
-                  placeholder="/products/tools.svg"
-                />
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <Input
+                    value={form.imageUrl}
+                    onChange={(event) => updateField('imageUrl', event.target.value)}
+                    placeholder="URL o imagen cargada"
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+
+                      if (file) {
+                        imageUploadMutation.mutate(file);
+                      }
+
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={imageUploadMutation.isPending}
+                  >
+                    <Upload className="h-4 w-4" />
+                    {imageUploadMutation.isPending ? 'Subiendo...' : 'Subir imagen'}
+                  </Button>
+                </div>
                 {form.imageUrl ? (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md border border-border bg-zinc-50 p-3">
                     {imagePreviewFailed ? (
-                      <span className="text-sm text-muted-foreground">No se pudo cargar la imagen.</span>
+                      <span className="text-sm text-muted-foreground">
+                        No se pudo cargar la imagen.
+                      </span>
                     ) : (
                       <img
                         src={form.imageUrl}
@@ -192,7 +259,10 @@ export function ProductForm({ productId }: { productId?: string }) {
               </div>
             </Field>
             <Field label="Marca">
-              <Input value={form.brand} onChange={(event) => updateField('brand', event.target.value)} />
+              <Input
+                value={form.brand}
+                onChange={(event) => updateField('brand', event.target.value)}
+              />
             </Field>
             <Field label="Unidad">
               <select
@@ -220,22 +290,27 @@ export function ProductForm({ productId }: { productId?: string }) {
                 <option value="DISCONTINUED">Descontinuado</option>
               </select>
             </Field>
-            <Field label="Precio">
+            <Field label="Precio (RD$)" required>
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={form.price}
-                onChange={(event) => updateField('price', event.target.value)}
+                onChange={(event) =>
+                  updateField('price', sanitizeCurrencyInput(event.target.value))
+                }
+                onBlur={(event) => updateField('price', formatCurrencyInput(event.target.value))}
+                onFocus={(event) => event.currentTarget.select()}
+                required
               />
             </Field>
-            <Field label="Costo">
+            <Field label="Costo (RD$)">
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={form.cost}
-                onChange={(event) => updateField('cost', event.target.value)}
+                onChange={(event) => updateField('cost', sanitizeCurrencyInput(event.target.value))}
+                onBlur={(event) => updateField('cost', formatCurrencyInput(event.target.value))}
+                onFocus={(event) => event.currentTarget.select()}
               />
             </Field>
             <Field label="ITBIS">
@@ -247,12 +322,13 @@ export function ProductForm({ productId }: { productId?: string }) {
                 onChange={(event) => updateField('taxRate', event.target.value)}
               />
             </Field>
-            <Field label="Stock actual">
+            <Field label="Stock actual" required>
               <Input
                 type="number"
                 min="0"
                 value={form.stock}
                 onChange={(event) => updateField('stock', event.target.value)}
+                required
               />
             </Field>
             <Field label="Stock minimo">
@@ -284,10 +360,21 @@ export function ProductForm({ productId }: { productId?: string }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  required = false,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required ? <span className="ml-1 text-danger">*</span> : null}
+      </Label>
       {children}
     </div>
   );

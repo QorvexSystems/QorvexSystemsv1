@@ -3,6 +3,8 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -16,6 +18,7 @@ export class CreateProductDto {
   categoryId?: string;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(160)
   name: string;
 
@@ -54,7 +57,7 @@ export class CreateProductDto {
 
   @Type(() => Number)
   @IsNumber()
-  @Min(0)
+  @Min(0.01)
   price: number;
 
   @IsOptional()
@@ -77,11 +80,10 @@ export class CreateProductDto {
   @IsBoolean()
   trackInventory?: boolean;
 
-  @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  stock?: number;
+  stock: number;
 
   @IsOptional()
   @Type(() => Number)

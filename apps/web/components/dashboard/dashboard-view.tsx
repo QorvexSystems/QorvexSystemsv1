@@ -272,7 +272,7 @@ export function DashboardView() {
                     <p className="text-xs text-muted-foreground">{product.sku ?? 'Sin SKU'}</p>
                   </div>
                   <Badge variant="danger">
-                    {product.stock}/{product.minStock}
+                    {Math.max(product.stock - product.reservedStock, 0)}/{product.minStock}
                   </Badge>
                 </Link>
               ))

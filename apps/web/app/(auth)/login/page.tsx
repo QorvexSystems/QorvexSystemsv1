@@ -2,7 +2,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowRight, LockKeyhole, Mail } from 'lucide-react';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -13,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { login } from '@/lib/api';
 import { getSession, saveSession } from '@/lib/auth-session';
+import { canAccessPath, getDefaultPathForSession } from '@/lib/authorization';
 
 const loginSchema = z.object({
   email: z.string().email('Ingresa un correo valido.'),
@@ -42,8 +42,9 @@ export default function LoginPage() {
     const safeNextPath = getSafeNextPath(params.get('next'));
     setNextPath(safeNextPath);
 
-    if (getSession()) {
-      router.replace(safeNextPath);
+    const currentSession = getSession();
+    if (currentSession) {
+      router.replace(canAccessPath(currentSession, safeNextPath) ? safeNextPath : getDefaultPathForSession(currentSession));
     }
   }, [router]);
 
@@ -52,8 +53,8 @@ export default function LoginPage() {
 
     try {
       const response = await login(values.email, values.password);
-      saveSession(response);
-      router.push(nextPath);
+      const session = saveSession(response);
+      router.push(canAccessPath(session, nextPath) ? nextPath : getDefaultPathForSession(session));
     } catch {
       setLoginError('No pudimos iniciar sesion con esas credenciales.');
     }
@@ -76,14 +77,14 @@ export default function LoginPage() {
           </div>
 
           <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center py-8 text-center lg:py-12">
-            <div className="relative aspect-square w-full max-w-[16rem] overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl shadow-black/50 sm:max-w-[20rem] lg:max-w-[24rem]">
-              <Image
+            <div className="flex aspect-square w-full max-w-[16rem] items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-black p-4 shadow-2xl shadow-black/50 sm:max-w-[20rem] sm:p-6 lg:max-w-[24rem]">
+              <img
                 src="/tenants/Ferreteria_RIVNU.jpeg"
                 alt="Logo Ferreteria RIVNU"
-                fill
-                priority
-                className="object-contain p-4 sm:p-6"
-                sizes="(max-width: 1024px) 80vw, 384px"
+                className="max-h-full max-w-full object-contain"
+                width={384}
+                height={384}
+                style={{ maxWidth: '100%', height: 'auto' }}
               />
             </div>
             <p className="mt-6 text-xs font-medium uppercase tracking-[0.18em] text-[#f36c10] sm:text-sm lg:mt-8">

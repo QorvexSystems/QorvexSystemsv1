@@ -6,6 +6,7 @@ import {
   PaymentMethod,
   Prisma,
   Role,
+  SalesOrderStatus,
 } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -29,18 +30,7 @@ export class CashService {
 
     return this.prisma.cashSession.findMany({
       where: { tenantId },
-      include: {
-        cashRegister: true,
-        openedBy: { select: { id: true, name: true, email: true } },
-        closedBy: { select: { id: true, name: true, email: true } },
-        movements: {
-          include: {
-            user: { select: { id: true, name: true, email: true } },
-            invoice: { select: { id: true, invoiceNumber: true, total: true } },
-          },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
+      include: this.cashSessionReportInclude(),
       orderBy: { openedAt: 'desc' },
       take: 100,
     });
@@ -166,6 +156,18 @@ export class CashService {
       throw new NotFoundException('Open cash session not found for tenant.');
     }
 
+    const claimedOrders = await this.prisma.salesOrder.count({
+      where: {
+        tenantId,
+        claimedCashSessionId: cashSessionId,
+        status: SalesOrderStatus.IN_CASHIER,
+      },
+    });
+
+    if (claimedOrders > 0) {
+      throw new BadRequestException('Close pending claimed sales orders before closing cash session.');
+    }
+
     const movements = await this.prisma.cashMovement.findMany({
       where: {
         tenantId,
@@ -174,17 +176,22 @@ export class CashService {
       select: {
         type: true,
         amount: true,
+        method: true,
       },
     });
     const negativeMovementTypes: CashMovementType[] = [CashMovementType.CASH_OUT, CashMovementType.REFUND];
     const expectedAmount = movements
       .reduce((sum, movement) => {
-        if (negativeMovementTypes.includes(movement.type)) {
-          return sum.sub(movement.amount);
-        }
-
         if (movement.type === CashMovementType.CLOSING) {
           return sum;
+        }
+
+        if (movement.method && movement.method !== PaymentMethod.CASH) {
+          return sum;
+        }
+
+        if (negativeMovementTypes.includes(movement.type)) {
+          return sum.sub(movement.amount);
         }
 
         return sum.add(movement.amount);
@@ -203,18 +210,6 @@ export class CashService {
           expectedAmount,
           difference,
           closedAt: new Date(),
-        },
-        include: {
-          cashRegister: true,
-          openedBy: { select: { id: true, name: true, email: true } },
-          closedBy: { select: { id: true, name: true, email: true } },
-          movements: {
-            include: {
-              user: { select: { id: true, name: true, email: true } },
-              invoice: { select: { id: true, invoiceNumber: true, total: true } },
-            },
-            orderBy: { createdAt: 'asc' },
-          },
         },
       });
 
@@ -247,7 +242,10 @@ export class CashService {
         },
       });
 
-      return closed;
+      return tx.cashSession.findUniqueOrThrow({
+        where: { id: closed.id },
+        include: this.cashSessionReportInclude(),
+      });
     });
   }
 
@@ -338,5 +336,49 @@ export class CashService {
     ) {
       throw new ForbiddenException('Employee does not have permission to view cash logs.');
     }
+  }
+
+  private cashSessionReportInclude() {
+    return {
+      cashRegister: true,
+      openedBy: { select: { id: true, name: true, email: true } },
+      closedBy: { select: { id: true, name: true, email: true } },
+      movements: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          invoice: { select: { id: true, invoiceNumber: true, total: true } },
+        },
+        orderBy: { createdAt: 'asc' as const },
+      },
+      invoices: {
+        include: {
+          customer: true,
+          issuedBy: { select: { id: true, name: true, email: true } },
+          items: true,
+          payments: {
+            select: {
+              id: true,
+              method: true,
+              amount: true,
+              status: true,
+              paidAt: true,
+              createdAt: true,
+            },
+          },
+          salesOrder: { select: { id: true, orderNumber: true, status: true } },
+        },
+        orderBy: { issuedAt: 'asc' as const },
+      },
+      claimedSalesOrders: {
+        include: {
+          customer: true,
+          createdBy: { select: { id: true, name: true, email: true } },
+          completedBy: { select: { id: true, name: true, email: true } },
+          invoice: { select: { id: true, invoiceNumber: true, total: true } },
+          items: true,
+        },
+        orderBy: { createdAt: 'asc' as const },
+      },
+    };
   }
 }

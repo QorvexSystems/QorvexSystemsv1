@@ -74,6 +74,7 @@ export class JwtAuthGuard implements CanActivate {
           canManageFiscalSequences: membership.canManageFiscalSequences,
           canViewCashLogs: membership.canViewCashLogs,
           canReprintReceipt: membership.canReprintReceipt,
+          canTakeOrders: membership.canTakeOrders,
         })),
     };
 

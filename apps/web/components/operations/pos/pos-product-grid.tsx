@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import type { Product } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { canAddProduct, getProductInitials, getProductPrice } from './pos-utils';
+import { canAddProduct, getAvailableStock, getProductInitials, getProductPrice } from './pos-utils';
 
 type PosProductGridProps = {
   products: Product[];
@@ -46,8 +46,9 @@ export function PosProductGrid({
     <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
       {products.map((product) => {
         const quantityInCart = quantitiesByProduct[product.id] ?? 0;
-        const lowStock = product.trackInventory && product.stock <= product.minStock;
-        const outOfStock = product.trackInventory && product.stock <= 0;
+        const availableStock = getAvailableStock(product);
+        const lowStock = product.trackInventory && availableStock <= product.minStock;
+        const outOfStock = product.trackInventory && availableStock <= 0;
         const disabled = !canAddProduct(product, quantityInCart);
 
         return (
@@ -68,7 +69,7 @@ export function PosProductGrid({
                   </p>
                 </div>
                 <Badge variant={lowStock || outOfStock ? 'danger' : 'outline'}>
-                  {outOfStock ? 'Sin stock' : product.trackInventory ? product.stock : 'Servicio'}
+                  {outOfStock ? 'Sin stock' : product.trackInventory ? availableStock : 'Servicio'}
                 </Badge>
               </div>
 

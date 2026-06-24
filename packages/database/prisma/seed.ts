@@ -22,6 +22,7 @@ import {
   ProductStatus,
   ProductUnit,
   Role,
+  SalesOrderStatus,
   TaxCategory,
 } from '../generated/client';
 import * as bcrypt from 'bcryptjs';
@@ -88,6 +89,8 @@ async function main() {
   await prisma.importRowError.deleteMany();
   await prisma.importBatch.deleteMany();
   await prisma.employeeActivityLog.deleteMany();
+  await prisma.salesOrderItem.deleteMany();
+  await prisma.salesOrder.deleteMany();
   await prisma.cashMovement.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.electronicDocument.deleteMany();
@@ -235,6 +238,33 @@ async function main() {
           hireDate: new Date('2025-05-15T00:00:00.000Z'),
           documentType: DocumentType.CEDULA,
           documentNumber: '00187654321',
+          status: EmployeeStatus.ACTIVE,
+        },
+      },
+    },
+  });
+
+  const orderTaker = await prisma.user.create({
+    data: {
+      email: 'ordenanza@rivnu.local',
+      name: 'Ordenanza RIVNU',
+      phone: '809-555-0103',
+      passwordHash,
+      memberships: {
+        create: {
+          tenantId: rivnuTenant.id,
+          role: Role.ORDER_TAKER,
+          canTakeOrders: true,
+        },
+      },
+      employeeProfiles: {
+        create: {
+          tenantId: rivnuTenant.id,
+          employeeCode: 'RIV-ORD-001',
+          jobTitle: 'Ordenanza / toma de ordenes',
+          hireDate: new Date('2025-06-01T00:00:00.000Z'),
+          documentType: DocumentType.CEDULA,
+          documentNumber: '00111223344',
           status: EmployeeStatus.ACTIVE,
         },
       },
@@ -639,10 +669,10 @@ async function main() {
       {
         tenantId: rivnuTenant.id,
         documentType: InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
-        prefix: 'E32',
+        prefix: 'BA',
         startNumber: 1,
-        endNumber: 5000,
-        nextNumber: 4,
+        endNumber: 25,
+        nextNumber: 3,
         validUntil: new Date('2027-12-31T23:59:59.000Z'),
         status: FiscalSequenceStatus.ACTIVE,
       },
@@ -663,6 +693,66 @@ async function main() {
   const now = new Date('2026-06-17T15:30:00.000Z');
   const yesterday = new Date('2026-06-16T16:45:00.000Z');
   const lastWeek = new Date('2026-06-10T14:20:00.000Z');
+
+  const pendingOrderAmounts = getInvoiceAmounts([
+    {
+      productId: bySku.get('RIV-CIN-5M')!.id,
+      sku: 'RIV-CIN-5M',
+      barcode: bySku.get('RIV-CIN-5M')!.barcode,
+      description: bySku.get('RIV-CIN-5M')!.name,
+      quantity: 1,
+      unitPrice: 235,
+    },
+    {
+      productId: bySku.get('RIV-DIS-MET45')!.id,
+      sku: 'RIV-DIS-MET45',
+      barcode: bySku.get('RIV-DIS-MET45')!.barcode,
+      description: bySku.get('RIV-DIS-MET45')!.name,
+      quantity: 3,
+      unitPrice: 75,
+    },
+  ]);
+
+  const pendingSalesOrder = await prisma.salesOrder.create({
+    data: {
+      tenantId: rivnuTenant.id,
+      customerId: customers[2].id,
+      orderNumber: 'ORD-20260617-0001',
+      status: SalesOrderStatus.SENT_TO_CASHIER,
+      subtotal: pendingOrderAmounts.subtotal,
+      taxTotal: pendingOrderAmounts.taxTotal,
+      total: pendingOrderAmounts.total,
+      notes: 'Orden demo pendiente para recibir en caja.',
+      createdById: orderTaker.id,
+      sentToCashierAt: new Date('2026-06-17T14:45:00.000Z'),
+      items: {
+        create: pendingOrderAmounts.lines.map((line) => ({
+          productId: line.productId,
+          sku: line.sku,
+          barcode: line.barcode,
+          description: line.description,
+          quantity: line.quantity,
+          reservedQuantity: line.quantity,
+          unitPrice: line.unitPrice,
+          taxRate: line.taxRate,
+          taxTotal: line.taxTotal,
+          subtotal: line.subtotal,
+          total: line.total,
+        })),
+      },
+    },
+  });
+
+  for (const line of pendingOrderAmounts.lines) {
+    await prisma.product.update({
+      where: { id: line.productId },
+      data: {
+        reservedStock: {
+          increment: line.quantity,
+        },
+      },
+    });
+  }
 
   const paidAmounts = getInvoiceAmounts([
     {
@@ -688,8 +778,9 @@ async function main() {
       tenantId: rivnuTenant.id,
       customerId: customers[2].id,
       documentType: InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
-      invoiceNumber: 'RIV-000001',
-      eNcf: 'E320000000001',
+      invoiceNumber: 'RIV-BA0001',
+      ncf: 'BA0001',
+      eNcf: 'BA0001',
       status: InvoiceStatus.PAID,
       fiscalStatus: InvoiceFiscalStatus.SIGNED,
       subtotal: paidAmounts.subtotal,
@@ -773,7 +864,8 @@ async function main() {
       tenantId: rivnuTenant.id,
       customerId: customers[1].id,
       documentType: InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31,
-      invoiceNumber: 'RIV-000002',
+      invoiceNumber: 'RIV-E310000000001',
+      ncf: 'E310000000001',
       eNcf: 'E310000000001',
       status: InvoiceStatus.ISSUED,
       fiscalStatus: InvoiceFiscalStatus.SIGNED,
@@ -821,8 +913,9 @@ async function main() {
       tenantId: rivnuTenant.id,
       customerId: customers[0].id,
       documentType: InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
-      invoiceNumber: 'RIV-000003',
-      eNcf: 'E320000000002',
+      invoiceNumber: 'RIV-BA0002',
+      ncf: 'BA0002',
+      eNcf: 'BA0002',
       status: InvoiceStatus.CANCELLED,
       fiscalStatus: InvoiceFiscalStatus.CANCELLED,
       subtotal: cancelledAmounts.subtotal,
@@ -868,6 +961,26 @@ async function main() {
 
   await prisma.employeeActivityLog.createMany({
     data: [
+      {
+        tenantId: rivnuTenant.id,
+        userId: orderTaker.id,
+        action: EmployeeLogAction.CREATE_SALES_ORDER,
+        entity: 'SalesOrder',
+        entityId: pendingSalesOrder.id,
+        amount: pendingOrderAmounts.total,
+        metadata: { orderNumber: pendingSalesOrder.orderNumber, source: 'development-seed' },
+        createdAt: new Date('2026-06-17T14:45:00.000Z'),
+      },
+      {
+        tenantId: rivnuTenant.id,
+        userId: orderTaker.id,
+        action: EmployeeLogAction.SEND_SALES_ORDER_TO_CASHIER,
+        entity: 'SalesOrder',
+        entityId: pendingSalesOrder.id,
+        amount: pendingOrderAmounts.total,
+        metadata: { orderNumber: pendingSalesOrder.orderNumber, source: 'development-seed' },
+        createdAt: new Date('2026-06-17T14:46:00.000Z'),
+      },
       {
         tenantId: rivnuTenant.id,
         userId: cashier.id,
@@ -957,6 +1070,7 @@ async function main() {
   console.log(`Seed completed for tenant ${rivnuTenant.name} (${rivnuTenant.id})`);
   console.log(`RIVNU admin login: admin@rivnu.local / ${demoPassword}`);
   console.log(`RIVNU cashier login: cajero@rivnu.local / ${demoPassword}`);
+  console.log(`RIVNU ordenanza login: ordenanza@rivnu.local / ${demoPassword}`);
   console.log(`Qorvex platform login: superadmin@qorvex.local / ${demoPassword}`);
 }
 

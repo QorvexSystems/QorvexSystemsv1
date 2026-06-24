@@ -24,6 +24,7 @@ const permissionFields = [
   ['canManageFiscalSequences', 'Secuencias fiscales'],
   ['canViewCashLogs', 'Ver logs de caja'],
   ['canReprintReceipt', 'Reimprimir recibos'],
+  ['canTakeOrders', 'Tomar ordenes'],
 ] as const;
 
 type EmployeeFormState = Record<(typeof permissionFields)[number][0], boolean> & {
@@ -58,6 +59,7 @@ const defaultState: EmployeeFormState = {
   canManageFiscalSequences: false,
   canViewCashLogs: false,
   canReprintReceipt: true,
+  canTakeOrders: false,
 };
 
 export function EmployeeForm({ employeeId }: { employeeId?: string }) {
@@ -77,6 +79,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
   useEffect(() => {
     if (employeeQuery.data && loadedEmployeeId !== employeeQuery.data.id) {
       const membership = employeeQuery.data.user.memberships[0];
+      const role = membership?.role ?? 'CASHIER';
       setLoadedEmployeeId(employeeQuery.data.id);
       setForm({
         ...defaultState,
@@ -84,12 +87,13 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
         email: employeeQuery.data.user.email,
         phone: employeeQuery.data.user.phone ?? '',
         password: '',
-        role: membership?.role ?? 'CASHIER',
+        role,
         employeeCode: employeeQuery.data.employeeCode ?? '',
         jobTitle: employeeQuery.data.jobTitle ?? '',
         documentNumber: '',
         status: employeeQuery.data.status,
         ...Object.fromEntries(permissionFields.map(([key]) => [key, Boolean(membership?.[key])])),
+        ...getForcedPermissionsForRole(role),
       } as EmployeeFormState);
     }
   }, [employeeQuery.data, loadedEmployeeId]);
@@ -128,6 +132,14 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
 
   function setField(key: keyof EmployeeFormState, value: string | boolean) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function setRole(role: string) {
+    setForm((current) => ({
+      ...current,
+      role,
+      ...getDefaultPermissionsForRole(role),
+    }));
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -174,11 +186,12 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
             <Field label="Rol">
               <select
                 value={form.role}
-                onChange={(event) => setField('role', event.target.value)}
+                onChange={(event) => setRole(event.target.value)}
                 className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
               >
                 <option value="ADMIN">Administrador</option>
                 <option value="CASHIER">Cajero</option>
+                <option value="ORDER_TAKER">Ordenanza</option>
               </select>
             </Field>
             <Field label="Estado">
@@ -209,6 +222,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
                   <input
                     type="checkbox"
                     checked={form[key]}
+                    disabled={isPermissionLocked(form.role, key)}
                     onChange={(event) => setField(key, event.target.checked)}
                   />
                   {label}
@@ -237,4 +251,81 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function getDefaultPermissionsForRole(role: string): Pick<
+  EmployeeFormState,
+  (typeof permissionFields)[number][0]
+> {
+  const permissions = Object.fromEntries(permissionFields.map(([key]) => [key, false])) as Pick<
+    EmployeeFormState,
+    (typeof permissionFields)[number][0]
+  >;
+
+  if (role === 'ADMIN') {
+    return {
+      ...permissions,
+      canUsePos: true,
+      canOpenCashSession: true,
+      canCloseCashSession: true,
+      canManageProducts: true,
+      canAdjustInventory: true,
+      canManageEmployees: true,
+      canViewReports: true,
+      canManageFiscalSequences: true,
+      canViewCashLogs: true,
+      canReprintReceipt: true,
+      canTakeOrders: true,
+    };
+  }
+
+  if (role === 'ORDER_TAKER') {
+    return {
+      ...permissions,
+      canTakeOrders: true,
+    };
+  }
+
+  return {
+    ...permissions,
+    canUsePos: true,
+    canOpenCashSession: true,
+    canCloseCashSession: true,
+    canReprintReceipt: true,
+  };
+}
+
+function isPermissionLocked(role: string, key: (typeof permissionFields)[number][0]) {
+  if (role === 'ORDER_TAKER') {
+    return true;
+  }
+
+  if (role === 'CASHIER' && key === 'canTakeOrders') {
+    return true;
+  }
+
+  if (role === 'ADMIN' && key === 'canTakeOrders') {
+    return true;
+  }
+
+  return false;
+}
+
+function getForcedPermissionsForRole(role: string): Partial<Pick<
+  EmployeeFormState,
+  (typeof permissionFields)[number][0]
+>> {
+  if (role === 'ORDER_TAKER') {
+    return getDefaultPermissionsForRole(role);
+  }
+
+  if (role === 'CASHIER') {
+    return { canTakeOrders: false };
+  }
+
+  if (role === 'ADMIN') {
+    return { canTakeOrders: true };
+  }
+
+  return {};
 }

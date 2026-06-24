@@ -20,19 +20,40 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  Product,
   ProductStatus,
   Role,
+  SalesOrderStatus,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { getBarcodeLookupCandidates } from '../../common/utils/barcode';
 import { CompleteSaleDto, PosSaleItemDto } from './dto/complete-sale.dto';
+
+const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
+const claimTtlMs = 30 * 60 * 1000;
+
+type ComputedSaleLine = {
+  product: Product;
+  productId: string;
+  sku: string | null;
+  barcode: string | null;
+  description: string;
+  quantity: Prisma.Decimal;
+  reservedQuantity: number;
+  unitPrice: Prisma.Decimal;
+  taxRate: Prisma.Decimal;
+  taxTotal: Prisma.Decimal;
+  subtotal: Prisma.Decimal;
+  total: Prisma.Decimal;
+};
 
 @Injectable()
 export class PosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async searchProducts(tenantId: string, user: AuthenticatedUser, q: string) {
-    await this.ensureCanUsePos(tenantId, user);
+    await this.ensureCanCreateDirectSale(tenantId, user);
     const query = q.trim();
 
     if (!query) {
@@ -57,13 +78,13 @@ export class PosService {
   }
 
   async findByBarcode(tenantId: string, user: AuthenticatedUser, barcode: string) {
-    await this.ensureCanUsePos(tenantId, user);
-    const normalizedBarcode = this.normalizeBarcode(barcode);
+    await this.ensureCanCreateDirectSale(tenantId, user);
+    const lookupCandidates = getBarcodeLookupCandidates(barcode);
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        barcode: normalizedBarcode,
         status: ProductStatus.ACTIVE,
+        OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
       include: {
         category: true,
@@ -83,8 +104,8 @@ export class PosService {
   }
 
   async previewSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
-    await this.ensureCanUsePos(tenantId, user);
-    const computed = await this.computeSale(tenantId, dto.items);
+    await this.ensureCanCreateDirectSale(tenantId, user);
+    const computed = await this.computeSale(tenantId, dto.items ?? []);
 
     return {
       documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
@@ -107,24 +128,43 @@ export class PosService {
   }
 
   async completeSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
-    await this.ensureCanUsePos(tenantId, user);
+    const membership = await this.ensureCanUsePos(tenantId, user);
 
-    if (!dto.items.length) {
-      throw new BadRequestException('Sale must include at least one item.');
+    if (!this.isAdminMembership(membership) && !dto.orderId) {
+      throw new ForbiddenException('Cashier can only charge orders sent to cashier.');
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const cashSession = await this.findCashSessionForSale(
+        tx,
+        tenantId,
+        user.id,
+        dto.cashSessionId,
+      );
+      const order = dto.orderId
+        ? await this.claimOrderForSale(tx, tenantId, user.id, cashSession.id, dto.orderId)
+        : null;
+
+      const computed = order
+        ? await this.computeSaleFromOrder(order)
+        : await this.computeSale(tenantId, dto.items ?? [], tx);
+
+      if (!computed.items.length) {
+        throw new BadRequestException('Sale must include at least one item.');
+      }
+
       const documentType = dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32;
-      const customer = dto.customerId
+      const customerId = dto.customerId ?? order?.customerId ?? undefined;
+      const customer = customerId
         ? await tx.customer.findFirst({
             where: {
-              id: dto.customerId,
+              id: customerId,
               tenantId,
             },
           })
         : null;
 
-      if (dto.customerId && !customer) {
+      if (customerId && !customer) {
         throw new NotFoundException('Customer not found for tenant.');
       }
 
@@ -137,16 +177,15 @@ export class PosService {
         throw new BadRequestException('Fiscal credit invoices require an RNC customer.');
       }
 
-      const cashSession = await this.findCashSessionForSale(tx, tenantId, user.id, dto.cashSessionId);
-      const computed = await this.computeSale(tenantId, dto.items, tx);
       const sequence = await this.reserveFiscalSequence(tx, tenantId, documentType);
       const payment = this.getPaymentAmounts(dto.amountReceived, computed.total, dto.paymentMethod);
       const paidAmount = payment.paidAmount;
       const balance = computed.total.sub(paidAmount).toDecimalPlaces(2);
       const status = this.getInvoiceStatus(paidAmount, computed.total);
       const issuedAt = new Date();
-      const invoiceNumber = `RIV-${sequence.prefix}-${String(sequence.number).padStart(6, '0')}`;
-      const eNcf = `${sequence.prefix}${String(sequence.number).padStart(10, '0')}`;
+      const fiscalNumber = this.formatFiscalNumber(sequence.prefix, sequence.number);
+      const invoiceNumber = `RIV-${fiscalNumber}`;
+      const eNcf = fiscalNumber;
 
       const invoice = await tx.invoice.create({
         data: {
@@ -154,6 +193,7 @@ export class PosService {
           customerId: customer?.id,
           documentType,
           invoiceNumber,
+          ncf: fiscalNumber,
           eNcf,
           status,
           fiscalStatus: InvoiceFiscalStatus.SIGNED,
@@ -172,14 +212,14 @@ export class PosService {
           dueDate: issuedAt,
           items: {
             create: computed.items.map((item) => ({
-              productId: item.product.id,
-              sku: item.product.sku,
-              barcode: item.product.barcode,
-              description: item.product.name,
+              productId: item.productId,
+              sku: item.sku,
+              barcode: item.barcode,
+              description: item.description,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               discountTotal: new Prisma.Decimal(0),
-              taxRate: item.product.taxRate,
+              taxRate: item.taxRate,
               taxTotal: item.taxTotal,
               subtotal: item.subtotal,
               total: item.total,
@@ -195,45 +235,13 @@ export class PosService {
       });
 
       for (const item of computed.items) {
-        if (!item.product.trackInventory) {
-          continue;
-        }
-
-        const quantity = item.quantity.toNumber();
-        if (!Number.isInteger(quantity)) {
-          throw new BadRequestException(
-            `Tracked product ${item.product.name} requires integer quantities.`,
-          );
-        }
-
-        const previousStock = item.product.stock;
-        const newStock = previousStock - quantity;
-
-        if (newStock < 0) {
-          throw new BadRequestException(`Insufficient stock for ${item.product.name}.`);
-        }
-
-        await tx.product.update({
-          where: { id: item.product.id },
-          data: {
-            stock: newStock,
-          },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            productId: item.product.id,
-            type: InventoryMovementType.SALE,
-            quantity,
-            previousStock,
-            newStock,
-            unitCost: item.product.cost,
-            reason: 'Venta POS facturada',
-            reference: invoice.invoiceNumber,
-            invoiceId: invoice.id,
-            createdById: user.id,
-          },
+        await this.applyInventoryForSale(tx, {
+          tenantId,
+          item,
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          userId: user.id,
+          fromOrder: Boolean(order),
         });
       }
 
@@ -283,6 +291,7 @@ export class PosService {
               paymentMethod: dto.paymentMethod,
               amountReceived: payment.amountReceived.toString(),
               changeAmount: payment.changeAmount.toString(),
+              orderNumber: order?.orderNumber,
             },
           },
           {
@@ -299,10 +308,42 @@ export class PosService {
               documentType,
               amountReceived: payment.amountReceived.toString(),
               changeAmount: payment.changeAmount.toString(),
+              orderNumber: order?.orderNumber,
             },
           },
+          ...(order
+            ? [
+                {
+                  tenantId,
+                  userId: user.id,
+                  cashSessionId: cashSession.id,
+                  action: EmployeeLogAction.COMPLETE_SALES_ORDER,
+                  entity: 'SalesOrder',
+                  entityId: order.id,
+                  invoiceId: invoice.id,
+                  amount: computed.total,
+                  metadata: {
+                    orderNumber: order.orderNumber,
+                    invoiceNumber,
+                  },
+                },
+              ]
+            : []),
         ],
       });
+
+      if (order) {
+        await tx.salesOrder.update({
+          where: { id: order.id },
+          data: {
+            status: SalesOrderStatus.COMPLETED,
+            completedById: user.id,
+            invoiceId: invoice.id,
+            completedAt: issuedAt,
+            claimExpiresAt: null,
+          },
+        });
+      }
 
       await tx.electronicDocument.create({
         data: {
@@ -347,6 +388,82 @@ export class PosService {
     });
   }
 
+  private async claimOrderForSale(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    userId: string,
+    cashSessionId: string,
+    orderId: string,
+  ) {
+    const now = new Date();
+    const claimExpiresAt = new Date(now.getTime() + claimTtlMs);
+
+    const claimed = await tx.salesOrder.updateMany({
+      where: {
+        id: orderId,
+        tenantId,
+        invoiceId: null,
+        OR: [
+          { status: SalesOrderStatus.SENT_TO_CASHIER },
+          {
+            status: SalesOrderStatus.IN_CASHIER,
+            claimedById: userId,
+          },
+          {
+            status: SalesOrderStatus.IN_CASHIER,
+            claimExpiresAt: { lt: now },
+          },
+        ],
+      },
+      data: {
+        status: SalesOrderStatus.IN_CASHIER,
+        claimedById: userId,
+        claimedCashSessionId: cashSessionId,
+        claimedAt: now,
+        claimExpiresAt,
+        releasedAt: null,
+      },
+    });
+
+    if (claimed.count !== 1) {
+      const existing = await tx.salesOrder.findFirst({
+        where: { id: orderId, tenantId },
+        select: {
+          id: true,
+          status: true,
+          claimedById: true,
+          invoiceId: true,
+        },
+      });
+
+      if (!existing) {
+        throw new NotFoundException('Pending sales order not found for tenant.');
+      }
+
+      if (existing.status === SalesOrderStatus.COMPLETED || existing.invoiceId) {
+        throw new BadRequestException('Sales order has already been completed.');
+      }
+
+      if (existing.status === SalesOrderStatus.CANCELLED) {
+        throw new BadRequestException('Sales order has already been cancelled.');
+      }
+
+      throw new BadRequestException('Sales order is already claimed by another cashier.');
+    }
+
+    return tx.salesOrder.findUniqueOrThrow({
+      where: { id: orderId },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+  }
+
   private async computeSale(
     tenantId: string,
     items: PosSaleItemDto[],
@@ -378,7 +495,7 @@ export class PosService {
       throw new NotFoundException('One or more POS products do not belong to tenant.');
     }
 
-    const computedItems = products.map((product) => {
+    const computedItems: ComputedSaleLine[] = products.map((product) => {
       const quantity = new Prisma.Decimal(quantitiesByProduct.get(product.id) ?? 0);
       const unitPrice = product.salePrice.gt(0) ? product.salePrice : product.price;
       const subtotal = quantity.mul(unitPrice).toDecimalPlaces(2);
@@ -386,8 +503,14 @@ export class PosService {
 
       return {
         product,
+        productId: product.id,
+        sku: product.sku,
+        barcode: product.barcode,
+        description: product.name,
         quantity,
+        reservedQuantity: 0,
         unitPrice,
+        taxRate: product.taxRate,
         subtotal,
         taxTotal,
         total: subtotal.add(taxTotal).toDecimalPlaces(2),
@@ -396,6 +519,7 @@ export class PosService {
 
     for (const item of computedItems) {
       const quantity = item.quantity.toNumber();
+      const availableStock = item.product.stock - item.product.reservedStock;
 
       if (item.product.trackInventory && !Number.isInteger(quantity)) {
         throw new BadRequestException(
@@ -403,8 +527,8 @@ export class PosService {
         );
       }
 
-      if (item.product.trackInventory && item.product.stock < quantity) {
-        throw new BadRequestException(`Insufficient stock for ${item.product.name}.`);
+      if (item.product.trackInventory && availableStock < quantity) {
+        throw new BadRequestException(`Insufficient available stock for ${item.product.name}.`);
       }
     }
 
@@ -422,39 +546,197 @@ export class PosService {
     };
   }
 
+  private async computeSaleFromOrder(order: {
+    items: Array<{
+      productId: string | null;
+      sku: string | null;
+      barcode: string | null;
+      description: string;
+      quantity: Prisma.Decimal;
+      reservedQuantity: number;
+      unitPrice: Prisma.Decimal;
+      taxRate: Prisma.Decimal;
+      taxTotal: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+      total: Prisma.Decimal;
+      product: Product | null;
+    }>;
+  }) {
+    const computedItems: ComputedSaleLine[] = order.items.map((item) => {
+      if (!item.productId || !item.product) {
+        throw new BadRequestException('Sales order contains an unavailable product.');
+      }
+
+      return {
+        product: item.product,
+        productId: item.productId,
+        sku: item.sku,
+        barcode: item.barcode,
+        description: item.description,
+        quantity: item.quantity,
+        reservedQuantity: item.reservedQuantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate,
+        taxTotal: item.taxTotal,
+        subtotal: item.subtotal,
+        total: item.total,
+      };
+    });
+
+    for (const item of computedItems) {
+      const quantity = item.quantity.toNumber();
+
+      if (item.product.trackInventory && !Number.isInteger(quantity)) {
+        throw new BadRequestException(
+          `Tracked product ${item.description} requires integer quantities.`,
+        );
+      }
+
+      if (item.product.trackInventory && item.product.stock < quantity) {
+        throw new BadRequestException(`Insufficient stock for ${item.description}.`);
+      }
+    }
+
+    return {
+      items: computedItems,
+      subtotal: computedItems
+        .reduce((sum, item) => sum.add(item.subtotal), new Prisma.Decimal(0))
+        .toDecimalPlaces(2),
+      taxTotal: computedItems
+        .reduce((sum, item) => sum.add(item.taxTotal), new Prisma.Decimal(0))
+        .toDecimalPlaces(2),
+      total: computedItems
+        .reduce((sum, item) => sum.add(item.total), new Prisma.Decimal(0))
+        .toDecimalPlaces(2),
+    };
+  }
+
+  private async applyInventoryForSale(
+    tx: Prisma.TransactionClient,
+    args: {
+      tenantId: string;
+      item: ComputedSaleLine;
+      invoiceId: string;
+      invoiceNumber: string;
+      userId: string;
+      fromOrder: boolean;
+    },
+  ) {
+    const { tenantId, item, invoiceId, invoiceNumber, userId, fromOrder } = args;
+
+    if (!item.product.trackInventory) {
+      return;
+    }
+
+    const quantity = item.quantity.toNumber();
+    if (!Number.isInteger(quantity)) {
+      throw new BadRequestException(
+        `Tracked product ${item.description} requires integer quantities.`,
+      );
+    }
+
+    const updated = fromOrder
+      ? await tx.$queryRaw<Array<{ stock: number; reservedStock: number }>>`
+          UPDATE "Product"
+          SET
+            "stock" = "stock" - ${quantity},
+            "reservedStock" = GREATEST("reservedStock" - ${item.reservedQuantity}, 0)
+          WHERE "id" = ${item.productId}
+            AND "tenantId" = ${tenantId}
+            AND "trackInventory" = TRUE
+            AND "stock" >= ${quantity}
+          RETURNING "stock", "reservedStock"
+        `
+      : await tx.$queryRaw<Array<{ stock: number; reservedStock: number }>>`
+          UPDATE "Product"
+          SET "stock" = "stock" - ${quantity}
+          WHERE "id" = ${item.productId}
+            AND "tenantId" = ${tenantId}
+            AND "trackInventory" = TRUE
+            AND ("stock" - "reservedStock") >= ${quantity}
+          RETURNING "stock", "reservedStock"
+        `;
+
+    if (updated.length !== 1) {
+      const message = fromOrder
+        ? `Insufficient stock for ${item.description}.`
+        : `Insufficient available stock for ${item.description}.`;
+      throw new BadRequestException(message);
+    }
+
+    const newStock = updated[0].stock;
+    const previousStock = newStock + quantity;
+
+    await tx.inventoryMovement.create({
+      data: {
+        tenantId,
+        productId: item.productId,
+        type: InventoryMovementType.SALE,
+        quantity,
+        previousStock,
+        newStock,
+        unitCost: item.product.cost,
+        reason: fromOrder ? 'Venta POS facturada desde orden' : 'Venta POS facturada',
+        reference: invoiceNumber,
+        invoiceId,
+        createdById: userId,
+      },
+    });
+  }
+
   private async reserveFiscalSequence(
     tx: Prisma.TransactionClient,
     tenantId: string,
     documentType: InvoiceDocumentType,
   ) {
-    const sequence = await tx.fiscalSequence.findFirst({
-      where: {
-        tenantId,
-        documentType,
-        status: FiscalSequenceStatus.ACTIVE,
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const sequence = await tx.fiscalSequence.findFirst({
+        where: {
+          tenantId,
+          documentType,
+          status: FiscalSequenceStatus.ACTIVE,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
 
-    if (!sequence || sequence.nextNumber > sequence.endNumber) {
-      throw new BadRequestException('No active fiscal sequence available for this document type.');
+      if (!sequence || sequence.nextNumber > sequence.endNumber) {
+        throw new BadRequestException(
+          'No active fiscal sequence available for this document type.',
+        );
+      }
+
+      const reserved = await tx.fiscalSequence.updateMany({
+        where: {
+          id: sequence.id,
+          nextNumber: sequence.nextNumber,
+          status: FiscalSequenceStatus.ACTIVE,
+        },
+        data: {
+          nextNumber: {
+            increment: 1,
+          },
+          ...(sequence.nextNumber >= sequence.endNumber
+            ? { status: FiscalSequenceStatus.EXHAUSTED }
+            : {}),
+        },
+      });
+
+      if (reserved.count === 1) {
+        return {
+          prefix: sequence.prefix,
+          number: sequence.nextNumber,
+        };
+      }
     }
 
-    await tx.fiscalSequence.update({
-      where: { id: sequence.id },
-      data: {
-        nextNumber: {
-          increment: 1,
-        },
-      },
-    });
+    throw new BadRequestException('Could not reserve fiscal sequence.');
+  }
 
-    return {
-      prefix: sequence.prefix,
-      number: sequence.nextNumber,
-    };
+  private formatFiscalNumber(prefix: string, number: number) {
+    const width = prefix === 'BA' ? 4 : 10;
+    return `${prefix}${String(number).padStart(width, '0')}`;
   }
 
   private async findCashSessionForSale(
@@ -476,10 +758,22 @@ export class PosService {
     });
 
     if (!session) {
-      throw new BadRequestException('An open cash session for this cashier is required to complete POS sales.');
+      throw new BadRequestException(
+        'An open cash session for this cashier is required to complete POS sales.',
+      );
     }
 
     return session;
+  }
+
+  private async ensureCanCreateDirectSale(tenantId: string, user: AuthenticatedUser) {
+    const membership = await this.ensureCanUsePos(tenantId, user);
+
+    if (!this.isAdminMembership(membership)) {
+      throw new ForbiddenException('Only admins can create direct POS sales.');
+    }
+
+    return membership;
   }
 
   private async ensureCanUsePos(tenantId: string, user: AuthenticatedUser) {
@@ -487,8 +781,7 @@ export class PosService {
 
     if (
       !membership ||
-      (!membership.canUsePos &&
-        !([Role.ADMIN, Role.CASHIER, Role.SUPER_ADMIN] as Role[]).includes(membership.role))
+      (!membership.canUsePos && ![...adminRoles, Role.CASHIER].includes(membership.role))
     ) {
       throw new ForbiddenException('Employee does not have POS access.');
     }
@@ -507,6 +800,12 @@ export class PosService {
         throw new ForbiddenException('Employee profile must be active to use POS.');
       }
     }
+
+    return membership;
+  }
+
+  private isAdminMembership(membership: AuthenticatedUser['memberships'][number]) {
+    return adminRoles.includes(membership.role);
   }
 
   private getPaymentAmounts(
@@ -531,9 +830,10 @@ export class PosService {
     return {
       paidAmount: total.toDecimalPlaces(2),
       amountReceived: tendered,
-      changeAmount: paymentMethod === PaymentMethod.CASH && tendered.gt(total)
-        ? tendered.sub(total).toDecimalPlaces(2)
-        : new Prisma.Decimal(0),
+      changeAmount:
+        paymentMethod === PaymentMethod.CASH && tendered.gt(total)
+          ? tendered.sub(total).toDecimalPlaces(2)
+          : new Prisma.Decimal(0),
     };
   }
 
@@ -547,9 +847,5 @@ export class PosService {
     }
 
     return InvoiceStatus.ISSUED;
-  }
-
-  private normalizeBarcode(barcode: string) {
-    return barcode.trim().replace(/\s+/g, '').toUpperCase();
   }
 }

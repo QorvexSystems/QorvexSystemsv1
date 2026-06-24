@@ -76,7 +76,7 @@ function parseExpiresInSeconds(value: string) {
   const match = value.match(/^(\d+)([smhd])$/);
 
   if (!match) {
-    return 15 * 60;
+    return 8 * 60 * 60;
   }
 
   const amount = Number(match[1]);

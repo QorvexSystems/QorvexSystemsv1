@@ -4,6 +4,7 @@ import { sessionCookieName } from './lib/auth-constants';
 const protectedPrefixes = [
   '/dashboard',
   '/pos',
+  '/orders',
   '/products',
   '/employees',
   '/cash',
