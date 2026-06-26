@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -8,6 +9,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { DocumentType, SalesOrderDestination } from '@qorvex/database';
 
 export class SalesOrderItemDto {
   @IsString()
@@ -20,9 +22,26 @@ export class SalesOrderItemDto {
 }
 
 export class CreateSalesOrderDto {
+  @IsEnum(SalesOrderDestination)
+  destination: SalesOrderDestination;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  clientName?: string;
+
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @IsOptional()
+  @IsEnum(DocumentType)
+  quotationDocumentType?: DocumentType;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  quotationDocumentNumber?: string;
 
   @IsOptional()
   @IsString()

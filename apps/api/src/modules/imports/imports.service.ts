@@ -154,6 +154,7 @@ export class ImportsService {
         await this.productsService.create(tenantId, userId, {
           ...row.payload,
           categoryId,
+          minStock: row.payload.minStock ?? 0,
         });
         importedRows += 1;
       } catch (error) {

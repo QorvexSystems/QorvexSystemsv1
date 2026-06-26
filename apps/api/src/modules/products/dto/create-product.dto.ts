@@ -85,11 +85,10 @@ export class CreateProductDto {
   @Min(0)
   stock: number;
 
-  @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  minStock?: number;
+  minStock: number;
 
   @IsOptional()
   @IsEnum(ProductStatus)

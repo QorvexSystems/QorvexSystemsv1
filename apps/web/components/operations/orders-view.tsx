@@ -1,7 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardCheck, Search, Send, X } from 'lucide-react';
+import { ClipboardCheck, FileText, Search, Send, X } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -14,14 +16,23 @@ import {
   createSalesOrder,
   getCustomers,
   getOrderProductByBarcode,
+  getSalesOrder,
   getSalesOrders,
   searchOrderProducts,
+  updateSalesOrder,
   type Product,
   type SalesOrder,
 } from '@/lib/api';
-import { canTakeOrders } from '@/lib/authorization';
+import { canTakeOrders, isAdminSession } from '@/lib/authorization';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
+import {
+  normalizeDominicanDocument,
+  validateDominicanCedula,
+  validateDominicanRnc,
+} from '@/lib/dominican-documents';
+import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { CancelReasonModal } from './cancel-reason-modal';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
 import { PosCart } from './pos/pos-cart';
@@ -36,16 +47,28 @@ type BarcodeDetectorInstance = {
   detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]>;
 };
 type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
-type WindowWithBarcodeDetector = Window & typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
+type WindowWithBarcodeDetector = Window &
+  typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
+
+type OrderDestination = 'CASH_SALE' | 'QUOTATION';
 
 export function OrdersView() {
   const session = useCurrentSession();
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const editOrderId = searchParams.get('edit');
+  const router = useRouter();
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanFrameRef = useRef<number | null>(null);
+  const loadedEditOrderRef = useRef<string | null>(null);
+  const editToastShownRef = useRef<string | null>(null);
 
+  const [destination, setDestination] = useState<OrderDestination>('CASH_SALE');
+  const [clientName, setClientName] = useState('');
+  const [quotationDocumentType, setQuotationDocumentType] = useState<'RNC' | 'CEDULA'>('CEDULA');
+  const [quotationDocumentNumber, setQuotationDocumentNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [notes, setNotes] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -58,6 +81,11 @@ export function OrdersView() {
   const [brandFilter, setBrandFilter] = useState('ALL');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [loadedEditOrderId, setLoadedEditOrderId] = useState<string | null>(null);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
+  const [cancelTargetLabel, setCancelTargetLabel] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
 
   const customersQuery = useQuery({
     queryKey: ['order-customers', session?.tenantId],
@@ -66,12 +94,18 @@ export function OrdersView() {
   });
   const productsQuery = useQuery({
     queryKey: ['order-products-search', session?.tenantId, search],
-    queryFn: () => searchOrderProducts(session?.tenantId ?? '', session?.accessToken ?? '', search || 'RIV'),
+    queryFn: () =>
+      searchOrderProducts(session?.tenantId ?? '', session?.accessToken ?? '', search || 'RIV'),
     enabled: Boolean(session),
   });
   const pendingOrdersQuery = useQuery({
     queryKey: ['sales-orders', session?.tenantId, 'OPEN'],
     queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'OPEN'),
+    enabled: Boolean(session),
+  });
+  const quotationsQuery = useQuery({
+    queryKey: ['sales-orders', session?.tenantId, 'QUOTATION'],
+    queryFn: () => getSalesOrders(session?.tenantId ?? '', session?.accessToken ?? '', 'QUOTATION'),
     enabled: Boolean(session),
   });
 
@@ -83,10 +117,91 @@ export function OrdersView() {
 
   useEffect(() => () => stopCameraScan(), []);
 
-  const activeCustomers = (customersQuery.data ?? []).filter((customer) => customer.status === 'ACTIVE');
+  // Cargar orden para edición si está el parámetro 'edit'
+  useEffect(() => {
+    if (!editOrderId) {
+      loadedEditOrderRef.current = null;
+      editToastShownRef.current = null;
+      return;
+    }
+
+    if (
+      !session ||
+      loadedEditOrderRef.current === editOrderId ||
+      loadedEditOrderId === editOrderId
+    ) {
+      return;
+    }
+
+    let active = true;
+    loadedEditOrderRef.current = editOrderId;
+
+    async function loadOrder() {
+      try {
+        const order = await getSalesOrder(session!.tenantId, session!.accessToken, editOrderId!);
+        if (!active) return;
+
+        if (order.status !== 'QUOTATION') {
+          toast.error('Solo se pueden modificar cotizaciones.');
+          loadedEditOrderRef.current = null;
+          router.replace('/orders');
+          return;
+        }
+
+        // Cargar datos
+        setDestination('QUOTATION');
+        setClientName(order.clientName || '');
+        setCustomerId(order.customerId || '');
+        setNotes(order.notes || '');
+        if (order.quotationDocumentType === 'RNC' || order.quotationDocumentType === 'CEDULA') {
+          setQuotationDocumentType(order.quotationDocumentType);
+        }
+        setQuotationDocumentNumber(order.quotationDocumentNumber || '');
+
+        // Cargar productos en el carrito
+        const cartItems = order.items.map((item) => ({
+          product: {
+            ...item.product!,
+            price: item.unitPrice,
+            taxRate: item.taxRate,
+          } as Product,
+          quantity: Number(item.quantity),
+        }));
+
+        setCart(cartItems);
+        setLoadedEditOrderId(editOrderId);
+        loadedEditOrderRef.current = null;
+
+        if (editToastShownRef.current !== editOrderId) {
+          editToastShownRef.current = editOrderId;
+          toast.info(`Editando cotizacion: ${order.orderNumber}`);
+        }
+      } catch (err) {
+        if (!active) return;
+        loadedEditOrderRef.current = null;
+        toast.error('No se pudo cargar la cotizacion para editar.');
+        router.replace('/orders');
+      }
+    }
+
+    loadOrder();
+
+    return () => {
+      active = false;
+      if (loadedEditOrderRef.current === editOrderId && loadedEditOrderId !== editOrderId) {
+        loadedEditOrderRef.current = null;
+      }
+    };
+  }, [editOrderId, session, router, loadedEditOrderId]);
+
+  const activeCustomers = (customersQuery.data ?? []).filter(
+    (customer) => customer.status === 'ACTIVE',
+  );
   const productPool = productsQuery.data ?? [];
   const categories = uniqueValues(
-    productPool.map((product) => product.category?.name).filter((value): value is string => Boolean(value)),
+    productPool
+      .map((product) => product.category?.name)
+      .filter((value): value is string => Boolean(value)),
   );
   const brands = uniqueValues(
     productPool.map((product) => product.brand).filter((value): value is string => Boolean(value)),
@@ -94,11 +209,17 @@ export function OrdersView() {
   const filteredProducts = productPool
     .filter((product) => categoryFilter === 'ALL' || product.category?.name === categoryFilter)
     .filter((product) => brandFilter === 'ALL' || product.brand === brandFilter);
-  const quantitiesByProduct = Object.fromEntries(cart.map((item) => [item.product.id, item.quantity]));
+  const quantitiesByProduct = Object.fromEntries(
+    cart.map((item) => [item.product.id, item.quantity]),
+  );
   const totals = useMemo(() => {
-    const subtotal = cart.reduce((sum, item) => sum + getProductPrice(item.product) * item.quantity, 0);
+    const subtotal = cart.reduce(
+      (sum, item) => sum + getProductPrice(item.product) * item.quantity,
+      0,
+    );
     const tax = cart.reduce(
-      (sum, item) => sum + getProductPrice(item.product) * item.quantity * Number(item.product.taxRate),
+      (sum, item) =>
+        sum + getProductPrice(item.product) * item.quantity * Number(item.product.taxRate),
       0,
     );
 
@@ -143,22 +264,79 @@ export function OrdersView() {
         throw new Error('Sesion requerida.');
       }
 
-      return createSalesOrder(session.tenantId, session.accessToken, {
+      const trimmedClientName = clientName.trim();
+      if (!trimmedClientName) {
+        throw new Error('El nombre del cliente es requerido.');
+      }
+
+      if (destination === 'QUOTATION') {
+        const normalizedDocument = normalizeDominicanDocument(quotationDocumentNumber);
+        const isValidDocument =
+          quotationDocumentType === 'RNC'
+            ? validateDominicanRnc(normalizedDocument)
+            : validateDominicanCedula(normalizedDocument);
+
+        if (!normalizedDocument) {
+          throw new Error('El numero de documento es requerido para cotizaciones.');
+        }
+
+        if (!isValidDocument) {
+          throw new Error(
+            quotationDocumentType === 'RNC' ? 'El RNC no es valido.' : 'La cedula no es valida.',
+          );
+        }
+      }
+
+      const payload = {
+        destination,
+        clientName: trimmedClientName,
         customerId: customerId || undefined,
+        quotationDocumentType: destination === 'QUOTATION' ? quotationDocumentType : undefined,
+        quotationDocumentNumber:
+          destination === 'QUOTATION'
+            ? normalizeDominicanDocument(quotationDocumentNumber)
+            : undefined,
         notes: notes.trim() || undefined,
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
         })),
-      });
+      };
+
+      if (editOrderId) {
+        return updateSalesOrder(session.tenantId, session.accessToken, editOrderId, payload);
+      }
+
+      return createSalesOrder(session.tenantId, session.accessToken, payload);
     },
     onSuccess: async (order) => {
-      setMessage(`Ticket pendiente ${order.orderNumber} enviado a caja. No es una factura fiscal.`);
+      const successMessage = editOrderId
+        ? `Cotizacion ${order.orderNumber} actualizada correctamente.`
+        : destination === 'QUOTATION'
+          ? `Cotizacion ${order.orderNumber} registrada correctamente.`
+          : `Ticket pendiente ${order.orderNumber} enviado a caja. No es una factura fiscal.`;
+      setMessage(successMessage);
       setCart([]);
       setNotes('');
       setCustomerId('');
+      setClientName('');
+      setQuotationDocumentNumber('');
+      setLoadedEditOrderId(null);
+      loadedEditOrderRef.current = editOrderId ? editOrderId : null;
+      editToastShownRef.current = null;
       await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
-      toast.success('Ticket enviado a caja', { description: order.orderNumber });
+      toast.success(
+        editOrderId
+          ? 'Cotizacion actualizada'
+          : destination === 'QUOTATION'
+            ? 'Cotizacion creada'
+            : 'Ticket enviado a caja',
+        { description: order.orderNumber },
+      );
+
+      if (editOrderId) {
+        router.push('/quotations');
+      }
     },
     onError: (error) => {
       const nextMessage = error instanceof Error ? error.message : 'No se pudo enviar la orden.';
@@ -244,7 +422,9 @@ export function OrdersView() {
 
   function enableScanner() {
     setScannerEnabled(true);
-    setScannerMessage('Lector activo. Escanea con pistola USB o usa camara si el navegador lo soporta.');
+    setScannerMessage(
+      'Lector activo. Escanea con pistola USB o usa camara si el navegador lo soporta.',
+    );
     window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
   }
 
@@ -260,13 +440,17 @@ export function OrdersView() {
 
     const detectorConstructor = (window as WindowWithBarcodeDetector).BarcodeDetector;
     if (!detectorConstructor || !navigator.mediaDevices?.getUserMedia) {
-      setScannerMessage('Camara QR no disponible en este navegador. Usa el lector USB o escribe el codigo.');
+      setScannerMessage(
+        'Camara QR no disponible en este navegador. Usa el lector USB o escribe el codigo.',
+      );
       barcodeInputRef.current?.focus();
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
       streamRef.current = stream;
       setCameraActive(true);
 
@@ -304,7 +488,9 @@ export function OrdersView() {
 
       scanFrameRef.current = window.requestAnimationFrame(scan);
     } catch {
-      setScannerMessage('No se pudo activar la camara. Puedes usar el lector USB o escribir el codigo.');
+      setScannerMessage(
+        'No se pudo activar la camara. Puedes usar el lector USB o escribir el codigo.',
+      );
       barcodeInputRef.current?.focus();
     }
   }
@@ -334,7 +520,9 @@ export function OrdersView() {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <CardTitle>Productos</CardTitle>
-                  <CardDescription>Busca por tipo, proveedor, nombre, SKU o codigo.</CardDescription>
+                  <CardDescription>
+                    Busca por tipo, proveedor, nombre, SKU o codigo.
+                  </CardDescription>
                 </div>
                 {lastScannedProduct ? (
                   <Badge variant="success">Ultimo escaneo: {lastScannedProduct.name}</Badge>
@@ -408,10 +596,45 @@ export function OrdersView() {
           <PosCart items={cart} onUpdateQuantity={updateQuantity} onClear={() => setCart([])} />
           <Card>
             <CardHeader>
-              <CardTitle>Enviar a caja</CardTitle>
-              <CardDescription>
-                Esto crea una preventa/ticket pendiente para caja. No emite factura fiscal.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle>
+                    {editOrderId
+                      ? 'Modificar cotizacion'
+                      : destination === 'QUOTATION'
+                        ? 'Registrar cotizacion'
+                        : 'Enviar a caja'}
+                  </CardTitle>
+                  <CardDescription>
+                    {editOrderId
+                      ? 'Actualiza los productos o datos de la cotización existente.'
+                      : destination === 'QUOTATION'
+                        ? 'Genera una cotizacion sin enviarla a caja ni emitir factura.'
+                        : 'Esto crea una preventa/ticket pendiente para caja. No emite factura fiscal.'}
+                  </CardDescription>
+                </div>
+                {editOrderId ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-danger hover:bg-danger/5 hover:text-danger"
+                    onClick={() => {
+                      setCart([]);
+                      setNotes('');
+                      setCustomerId('');
+                      setClientName('');
+                      setQuotationDocumentNumber('');
+                      setLoadedEditOrderId(null);
+                      loadedEditOrderRef.current = editOrderId;
+                      editToastShownRef.current = null;
+                      router.replace('/orders');
+                    }}
+                  >
+                    Cancelar edicion
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent>
               <form
@@ -422,7 +645,80 @@ export function OrdersView() {
                 }}
               >
                 <div className="space-y-2">
-                  <Label htmlFor="orderCustomer">Cliente</Label>
+                  <Label>Destino de la orden</Label>
+                  <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-white p-1">
+                    <button
+                      type="button"
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        destination === 'CASH_SALE'
+                          ? 'bg-[#f36c10] text-white shadow-sm'
+                          : 'text-zinc-600 hover:bg-zinc-50'
+                      }`}
+                      onClick={() => setDestination('CASH_SALE')}
+                    >
+                      Venta de caja
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        destination === 'QUOTATION'
+                          ? 'bg-[#f36c10] text-white shadow-sm'
+                          : 'text-zinc-600 hover:bg-zinc-50'
+                      }`}
+                      onClick={() => setDestination('QUOTATION')}
+                    >
+                      Cotizacion
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="orderClientName">
+                    Nombre del cliente <span className="text-danger">*</span>
+                  </Label>
+                  <Input
+                    id="orderClientName"
+                    value={clientName}
+                    onChange={(event) => setClientName(event.target.value)}
+                    placeholder="Nombre del cliente"
+                    required
+                  />
+                </div>
+
+                {destination === 'QUOTATION' ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="quotationDocumentType">Tipo de documento</Label>
+                      <select
+                        id="quotationDocumentType"
+                        value={quotationDocumentType}
+                        onChange={(event) =>
+                          setQuotationDocumentType(event.target.value as 'RNC' | 'CEDULA')
+                        }
+                        className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+                      >
+                        <option value="CEDULA">Cedula</option>
+                        <option value="RNC">RNC</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="quotationDocumentNumber">
+                        Numero de documento <span className="text-danger">*</span>
+                      </Label>
+                      <Input
+                        id="quotationDocumentNumber"
+                        value={quotationDocumentNumber}
+                        onChange={(event) => setQuotationDocumentNumber(event.target.value)}
+                        placeholder={quotationDocumentType === 'RNC' ? '123456789' : '00123456789'}
+                        inputMode="numeric"
+                        required
+                      />
+                    </div>
+                  </>
+                ) : null}
+
+                <div className="space-y-2">
+                  <Label htmlFor="orderCustomer">Cliente registrado (opcional)</Label>
                   <select
                     id="orderCustomer"
                     value={customerId}
@@ -472,27 +768,88 @@ export function OrdersView() {
                   className="h-14 w-full bg-[#f36c10] text-base text-white hover:bg-[#d85f0e]"
                   disabled={!cart.length || createOrderMutation.isPending}
                 >
-                  <Send className="h-5 w-5" />
-                  Enviar a caja
+                  {editOrderId ? (
+                    <>
+                      <FileText className="h-5 w-5" />
+                      Actualizar cotizacion
+                    </>
+                  ) : destination === 'QUOTATION' ? (
+                    <>
+                      <FileText className="h-5 w-5" />
+                      Guardar cotizacion
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-5 w-5" />
+                      Enviar a caja
+                    </>
+                  )}
                 </Button>
               </form>
             </CardContent>
           </Card>
 
-          <PendingOrdersPanel
-            orders={pendingOrdersQuery.data ?? []}
-            loading={pendingOrdersQuery.isLoading}
+          {destination === 'CASH_SALE' ? (
+            <PendingOrdersPanel
+              orders={pendingOrdersQuery.data ?? []}
+              loading={pendingOrdersQuery.isLoading}
+              cancellingId={cancelOrderMutation.variables?.orderId}
+              onCancel={(order) => {
+                setCancelTargetId(order.id);
+                setCancelTargetLabel(order.orderNumber);
+                setCancelReason('');
+                setCancelModalOpen(true);
+              }}
+            />
+          ) : null}
+
+          <QuotationsPanel
+            orders={quotationsQuery.data ?? []}
+            loading={quotationsQuery.isLoading}
+            showManagement={Boolean(isAdminSession(session) || canTakeOrders(session))}
             cancellingId={cancelOrderMutation.variables?.orderId}
-            onCancel={(orderId) => {
-              const reason = window.prompt('Motivo de cancelacion de la orden');
-              if (reason === null) {
-                return;
-              }
-              cancelOrderMutation.mutate({ orderId, reason: reason.trim() || undefined });
+            onCancel={(order) => {
+              setCancelTargetId(order.id);
+              setCancelTargetLabel(order.orderNumber);
+              setCancelReason('');
+              setCancelModalOpen(true);
             }}
           />
         </div>
       </section>
+
+      <CancelReasonModal
+        open={cancelModalOpen}
+        title="Cancelar orden o cotizacion"
+        description={
+          cancelTargetLabel
+            ? `Indica por que se cancela ${cancelTargetLabel}.`
+            : 'Indica por que se cancela esta orden o cotizacion.'
+        }
+        reason={cancelReason}
+        isPending={cancelOrderMutation.isPending}
+        onReasonChange={setCancelReason}
+        onClose={() => {
+          setCancelModalOpen(false);
+          setCancelTargetId(null);
+          setCancelTargetLabel('');
+          setCancelReason('');
+        }}
+        onConfirm={() => {
+          const trimmedReason = cancelReason.trim();
+          if (!trimmedReason) {
+            toast.error('El motivo de cancelacion es requerido.');
+            return;
+          }
+          if (cancelTargetId) {
+            cancelOrderMutation.mutate({ orderId: cancelTargetId, reason: trimmedReason });
+          }
+          setCancelModalOpen(false);
+          setCancelTargetId(null);
+          setCancelTargetLabel('');
+          setCancelReason('');
+        }}
+      />
     </div>
   );
 }
@@ -506,7 +863,7 @@ function PendingOrdersPanel({
   orders: SalesOrder[];
   loading: boolean;
   cancellingId?: string;
-  onCancel: (orderId: string) => void;
+  onCancel: (order: SalesOrder) => void;
 }) {
   return (
     <Card>
@@ -516,7 +873,9 @@ function PendingOrdersPanel({
       </CardHeader>
       <CardContent className="space-y-2">
         {loading ? (
-          <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">Cargando ordenes...</p>
+          <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">
+            Cargando ordenes...
+          </p>
         ) : orders.length ? (
           orders.map((order) => (
             <div key={order.id} className="rounded-md border border-zinc-200 bg-white p-3">
@@ -524,13 +883,18 @@ function PendingOrdersPanel({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
-                    <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
+                    <Badge variant={getStatusVariant(order.status)}>
+                      {translateStatus(order.status)}
+                    </Badge>
                     <Badge variant={getWaitingVariant(order)}>{getWaitingMinutes(order)} min</Badge>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {order.customer?.name ?? 'Consumidor final'} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
+                    {getOrderSearchLabel(order)} -{' '}
+                    {formatDate(order.sentToCashierAt ?? order.createdAt)}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Creada por {order.createdBy.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Creada por {order.createdBy.name}
+                  </p>
                   {order.claimedBy ? (
                     <p className="mt-1 text-xs text-warning">
                       Tomada por {order.claimedBy.name}
@@ -548,7 +912,7 @@ function PendingOrdersPanel({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => onCancel(order.id)}
+                  onClick={() => onCancel(order)}
                   disabled={cancellingId === order.id || order.status === 'IN_CASHIER'}
                 >
                   <X className="h-4 w-4" />
@@ -561,6 +925,92 @@ function PendingOrdersPanel({
           <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
             <ClipboardCheck className="mx-auto h-6 w-6 text-muted-foreground" />
             <p className="mt-2 text-sm text-muted-foreground">No hay tickets pendientes.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuotationsPanel({
+  orders,
+  loading,
+  showManagement,
+  cancellingId,
+  onCancel,
+}: {
+  orders: SalesOrder[];
+  loading: boolean;
+  showManagement: boolean;
+  cancellingId?: string;
+  onCancel: (order: SalesOrder) => void;
+}) {
+  if (!showManagement) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cotizaciones</CardTitle>
+        <CardDescription>
+          Cotizaciones registradas sin cobro. Puedes imprimirlas o cancelarlas si aplica.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {loading ? (
+          <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">
+            Cargando cotizaciones...
+          </p>
+        ) : orders.length ? (
+          orders.map((order) => (
+            <div key={order.id} className="rounded-md border border-zinc-200 bg-white p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-zinc-950">{getOrderSearchLabel(order)}</p>
+                    <Badge variant={getStatusVariant(order.status)}>
+                      {translateStatus(order.status)}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Cliente: {getOrderClientLabel(order)}
+                  </p>
+                  {order.quotationDocumentType && order.quotationDocumentNumber ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {order.quotationDocumentType}: {order.quotationDocumentNumber}
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Creada por {order.createdBy.name} - {formatDate(order.createdAt)}
+                  </p>
+                </div>
+                <p className="shrink-0 text-sm font-bold">{formatCurrency(Number(order.total))}</p>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">{order.items.length} producto(s)</p>
+                <div className="flex items-center gap-2">
+                  <Button asChild type="button" variant="outline" size="sm">
+                    <Link href={`/orders/${order.id}/print`}>Ver / imprimir</Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onCancel(order)}
+                    disabled={cancellingId === order.id}
+                  >
+                    <X className="h-4 w-4" />
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center">
+            <FileText className="mx-auto h-6 w-6 text-muted-foreground" />
+            <p className="mt-2 text-sm text-muted-foreground">No hay cotizaciones registradas.</p>
           </div>
         )}
       </CardContent>

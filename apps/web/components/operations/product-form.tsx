@@ -163,6 +163,18 @@ export function ProductForm({ productId }: { productId?: string }) {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (form.minStock.trim() === '') {
+      toast.error('El stock minimo es requerido.');
+      return;
+    }
+
+    const parsedMinStock = Number(form.minStock);
+    if (Number.isNaN(parsedMinStock) || parsedMinStock < 0) {
+      toast.error('El stock minimo debe ser un numero valido.');
+      return;
+    }
+
     saveMutation.mutate();
   }
 
@@ -331,12 +343,13 @@ export function ProductForm({ productId }: { productId?: string }) {
                 required
               />
             </Field>
-            <Field label="Stock minimo">
+            <Field label="Stock minimo" required>
               <Input
                 type="number"
                 min="0"
                 value={form.minStock}
                 onChange={(event) => updateField('minStock', event.target.value)}
+                required
               />
             </Field>
             <label className="flex items-center gap-2 pt-7 text-sm font-medium">

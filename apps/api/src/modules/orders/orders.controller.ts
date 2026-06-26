@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -88,5 +88,24 @@ export class OrdersController {
     @Body() dto: CancelSalesOrderDto,
   ) {
     return this.ordersService.cancel(tenantId, user, id, dto);
+  }
+
+  @Post(':id/accept')
+  accept(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.accept(tenantId, user, id);
+  }
+
+  @Patch(':id')
+  update(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CreateSalesOrderDto,
+  ) {
+    return this.ordersService.update(tenantId, user, id, dto);
   }
 }

@@ -32,7 +32,7 @@ export function CashSessionsView() {
   const queryClient = useQueryClient();
   const [selectedRegisterId, setSelectedRegisterId] = useState('');
   const [selectedClosingSessionId, setSelectedClosingSessionId] = useState('');
-  const [openingAmount, setOpeningAmount] = useState(formatCurrencyInputFromNumber(5000));
+  const [openingAmount, setOpeningAmount] = useState(clearCurrencyInput());
   const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [message, setMessage] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
@@ -85,9 +85,14 @@ export function CashSessionsView() {
         throw new Error('Sesion requerida.');
       }
 
+      const parsedOpeningAmount = parseCurrencyInput(openingAmount);
+      if (parsedOpeningAmount <= 0) {
+        throw new Error('El monto inicial debe ser mayor que 0.');
+      }
+
       return openCashSession(session.tenantId, session.accessToken, {
         cashRegisterId: selectedRegisterId,
-        openingAmount: parseCurrencyInput(openingAmount),
+        openingAmount: parsedOpeningAmount,
       });
     },
     onSuccess: async () => {
@@ -192,7 +197,9 @@ export function CashSessionsView() {
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="openingAmount">Monto inicial</Label>
+              <Label htmlFor="openingAmount">
+                Monto inicial <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="openingAmount"
                 type="text"
@@ -210,7 +217,8 @@ export function CashSessionsView() {
                 disabled={
                   !selectedRegisterId ||
                   openMutation.isPending ||
-                  Boolean(selectedRegisterOpenSession)
+                  Boolean(selectedRegisterOpenSession) ||
+                  parseCurrencyInput(openingAmount) <= 0
                 }
               >
                 <DoorOpen className="h-4 w-4" />

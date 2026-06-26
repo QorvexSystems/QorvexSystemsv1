@@ -13,4 +13,6 @@ coverage
 .tmp
 .dev-logs/
 .DS_Store
+.vscode/
+Qorvex_RIVNU_Plantilla_Importacion_Product*.xlsx
 packages/database/generated

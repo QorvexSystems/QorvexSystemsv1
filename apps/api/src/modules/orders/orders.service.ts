@@ -6,14 +6,21 @@ import {
 } from '@nestjs/common';
 import {
   CashSessionStatus,
+  DocumentType,
   EmployeeLogAction,
   EmployeeStatus,
   Prisma,
   ProductStatus,
   Role,
+  SalesOrderDestination,
   SalesOrderStatus,
 } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import {
+  normalizeDominicanDocument,
+  validateDominicanCedula,
+  validateDominicanRnc,
+} from '../../common/utils/dominican-documents';
 import { getBarcodeLookupCandidates } from '../../common/utils/barcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -53,10 +60,17 @@ export class OrdersService {
     const parsedStatuses = this.parseStatuses(status);
     const ownOrdersOnly =
       !adminRoles.includes(membership.role) && membership.role === Role.ORDER_TAKER;
+    const destinationFilter =
+      status === 'OPEN'
+        ? SalesOrderDestination.CASH_SALE
+        : status === 'QUOTATION'
+          ? SalesOrderDestination.QUOTATION
+          : undefined;
 
     return this.prisma.salesOrder.findMany({
       where: {
         tenantId,
+        ...(destinationFilter ? { destination: destinationFilter } : {}),
         ...(parsedStatuses ? { status: { in: parsedStatuses } } : {}),
         ...(ownOrdersOnly ? { createdById: user.id } : {}),
       },
@@ -149,6 +163,13 @@ export class OrdersService {
       throw new BadRequestException('Sales order must include at least one item.');
     }
 
+    const clientName = dto.clientName?.trim() || undefined;
+    const destination = dto.destination ?? SalesOrderDestination.CASH_SALE;
+
+    if (destination === SalesOrderDestination.QUOTATION) {
+      this.validateQuotationDocument(dto);
+    }
+
     const customer = dto.customerId
       ? await this.prisma.customer.findFirst({
           where: {
@@ -164,21 +185,31 @@ export class OrdersService {
 
     return this.prisma.$transaction(async (tx) => {
       const computed = await this.computeOrder(tenantId, dto.items, tx);
-      await this.reserveStockForOrder(tenantId, computed.items, tx);
+      const isQuotation = destination === SalesOrderDestination.QUOTATION;
+
+      if (!isQuotation) {
+        await this.reserveStockForOrder(tenantId, computed.items, tx);
+      }
 
       const now = new Date();
       const order = await tx.salesOrder.create({
         data: {
           tenantId,
           customerId: customer?.id,
-          orderNumber: this.generateOrderNumber(),
-          status: SalesOrderStatus.SENT_TO_CASHIER,
+          destination,
+          clientName,
+          quotationDocumentType: isQuotation ? dto.quotationDocumentType : undefined,
+          quotationDocumentNumber: isQuotation
+            ? normalizeDominicanDocument(dto.quotationDocumentNumber ?? '')
+            : undefined,
+          orderNumber: this.generateOrderNumber(isQuotation),
+          status: isQuotation ? SalesOrderStatus.QUOTATION : SalesOrderStatus.SENT_TO_CASHIER,
           subtotal: computed.subtotal,
           taxTotal: computed.taxTotal,
           total: computed.total,
           notes: dto.notes?.trim() || undefined,
           createdById: user.id,
-          sentToCashierAt: now,
+          sentToCashierAt: isQuotation ? undefined : now,
           items: {
             create: computed.items.map((item) => ({
               productId: item.product.id,
@@ -186,7 +217,7 @@ export class OrdersService {
               barcode: item.product.barcode,
               description: item.product.name,
               quantity: item.quantity,
-              reservedQuantity: item.reservedQuantity,
+              reservedQuantity: isQuotation ? 0 : item.reservedQuantity,
               unitPrice: item.unitPrice,
               taxRate: item.product.taxRate,
               taxTotal: item.taxTotal,
@@ -198,28 +229,31 @@ export class OrdersService {
         include: this.orderInclude(),
       });
 
-      await tx.employeeActivityLog.createMany({
-        data: [
-          {
-            tenantId,
-            userId: user.id,
-            action: EmployeeLogAction.CREATE_SALES_ORDER,
-            entity: 'SalesOrder',
-            entityId: order.id,
-            amount: computed.total,
-            metadata: this.buildOrderLogMetadata(order, computed.items, user.id),
-          },
-          {
-            tenantId,
-            userId: user.id,
-            action: EmployeeLogAction.SEND_SALES_ORDER_TO_CASHIER,
-            entity: 'SalesOrder',
-            entityId: order.id,
-            amount: computed.total,
-            metadata: this.buildOrderLogMetadata(order, computed.items, user.id),
-          },
-        ],
-      });
+      const activityLogs: Prisma.EmployeeActivityLogCreateManyInput[] = [
+        {
+          tenantId,
+          userId: user.id,
+          action: EmployeeLogAction.CREATE_SALES_ORDER,
+          entity: 'SalesOrder',
+          entityId: order.id,
+          amount: computed.total,
+          metadata: this.buildOrderLogMetadata(order, computed.items, user.id),
+        },
+      ];
+
+      if (!isQuotation) {
+        activityLogs.push({
+          tenantId,
+          userId: user.id,
+          action: EmployeeLogAction.SEND_SALES_ORDER_TO_CASHIER,
+          entity: 'SalesOrder',
+          entityId: order.id,
+          amount: computed.total,
+          metadata: this.buildOrderLogMetadata(order, computed.items, user.id),
+        });
+      }
+
+      await tx.employeeActivityLog.createMany({ data: activityLogs });
 
       return order;
     });
@@ -227,6 +261,11 @@ export class OrdersService {
 
   async claim(tenantId: string, user: AuthenticatedUser, id: string, dto: ClaimSalesOrderDto) {
     const membership = await this.ensureCanUsePosForOrders(tenantId, user);
+
+    if (adminRoles.includes(membership.role)) {
+      throw new ForbiddenException('Admins cannot claim sales orders for charging.');
+    }
+
     const cashSession = await this.findOpenCashSessionForUser(tenantId, user.id, dto.cashSessionId);
     const now = new Date();
     const claimExpiresAt = new Date(now.getTime() + claimTtlMs);
@@ -238,6 +277,7 @@ export class OrdersService {
         where: {
           id,
           tenantId,
+          destination: SalesOrderDestination.CASH_SALE,
           invoiceId: null,
           OR: [
             { status: SalesOrderStatus.SENT_TO_CASHIER },
@@ -377,8 +417,9 @@ export class OrdersService {
       const canCancel =
         adminRoles.includes(membership.role) ||
         (order.createdById === user.id &&
-          order.status === SalesOrderStatus.SENT_TO_CASHIER &&
-          membership.role === Role.ORDER_TAKER) ||
+          (order.status === SalesOrderStatus.SENT_TO_CASHIER ||
+            order.status === SalesOrderStatus.QUOTATION) &&
+          (membership.role === Role.ORDER_TAKER || adminRoles.includes(membership.role))) ||
         (order.claimedById === user.id &&
           order.status === SalesOrderStatus.IN_CASHIER &&
           (membership.role === Role.CASHIER || membership.canUsePos));
@@ -389,15 +430,20 @@ export class OrdersService {
         );
       }
 
-      if (!openOrderStatuses.includes(order.status)) {
+      if (!openOrderStatuses.includes(order.status) && order.status !== SalesOrderStatus.QUOTATION) {
         throw new BadRequestException('Only pending sales orders can be cancelled.');
       }
+
+      const cancellableStatuses =
+        order.status === SalesOrderStatus.QUOTATION
+          ? [SalesOrderStatus.QUOTATION]
+          : openOrderStatuses;
 
       const cancelledRows = await tx.salesOrder.updateMany({
         where: {
           id,
           tenantId,
-          status: { in: openOrderStatuses },
+          status: { in: cancellableStatuses },
         },
         data: {
           status: SalesOrderStatus.CANCELLED,
@@ -437,6 +483,157 @@ export class OrdersService {
       });
 
       return cancelled;
+    });
+  }
+
+  async accept(tenantId: string, user: AuthenticatedUser, id: string) {
+    const membership = this.getMembership(tenantId, user);
+    this.ensureCanViewOrders(membership);
+
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.salesOrder.findFirst({
+        where: { id, tenantId },
+        include: {
+          items: {
+            include: {
+              product: true,
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        throw new NotFoundException('Sales order not found for tenant.');
+      }
+
+      if (order.status !== SalesOrderStatus.QUOTATION) {
+        throw new BadRequestException('Only quotations can be accepted.');
+      }
+
+      // Convert order items to list format for stock reservation
+      const orderItems = order.items.map((item) => ({
+        productId: item.productId!,
+        quantity: Number(item.quantity),
+      }));
+
+      // Compute order and validate stock
+      const computed = await this.computeOrder(tenantId, orderItems, tx);
+
+      // Reserve stock for the order
+      await this.reserveStockForOrder(tenantId, computed.items, tx);
+
+      // Update the reservedQuantity of each item
+      for (const item of order.items) {
+        const reservedQuantity = Number(item.quantity);
+        await tx.salesOrderItem.update({
+          where: { id: item.id },
+          data: { reservedQuantity },
+        });
+      }
+
+      const now = new Date();
+      const updated = await tx.salesOrder.update({
+        where: { id },
+        data: {
+          destination: SalesOrderDestination.CASH_SALE,
+          status: SalesOrderStatus.SENT_TO_CASHIER,
+          sentToCashierAt: now,
+        },
+        include: this.orderInclude(),
+      });
+
+      // Log activities
+      await tx.employeeActivityLog.create({
+        data: {
+          tenantId,
+          userId: user.id,
+          action: EmployeeLogAction.SEND_SALES_ORDER_TO_CASHIER,
+          entity: 'SalesOrder',
+          entityId: id,
+          amount: updated.total,
+          metadata: { orderNumber: updated.orderNumber },
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  async update(tenantId: string, user: AuthenticatedUser, id: string, dto: CreateSalesOrderDto) {
+    const membership = this.getMembership(tenantId, user);
+    this.ensureCanTakeOrders(tenantId, user);
+
+    this.validateQuotationDocument(dto);
+
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.salesOrder.findFirst({
+        where: { id, tenantId },
+        include: { items: true },
+      });
+
+      if (!order) {
+        throw new NotFoundException('Sales order not found for tenant.');
+      }
+
+      if (order.status !== SalesOrderStatus.QUOTATION) {
+        throw new BadRequestException('Only quotations can be modified.');
+      }
+
+      // Delete existing items
+      await tx.salesOrderItem.deleteMany({
+        where: { salesOrderId: id },
+      });
+
+      // Compute new totals
+      const computed = await this.computeOrder(tenantId, dto.items, tx);
+
+      // Update order fields
+      const updated = await tx.salesOrder.update({
+        where: { id },
+        data: {
+          clientName: dto.clientName?.trim() || undefined,
+          customerId: dto.customerId || null,
+          quotationDocumentType: dto.quotationDocumentType,
+          quotationDocumentNumber: dto.quotationDocumentNumber
+            ? normalizeDominicanDocument(dto.quotationDocumentNumber)
+            : null,
+          subtotal: computed.subtotal,
+          taxTotal: computed.taxTotal,
+          total: computed.total,
+          notes: dto.notes?.trim() || null,
+          items: {
+            create: computed.items.map((item) => ({
+              productId: item.product.id,
+              sku: item.product.sku,
+              barcode: item.product.barcode,
+              description: item.product.name,
+              quantity: item.quantity,
+              reservedQuantity: 0,
+              unitPrice: item.unitPrice,
+              taxRate: item.product.taxRate,
+              taxTotal: item.taxTotal,
+              subtotal: item.subtotal,
+              total: item.total,
+            })),
+          },
+        },
+        include: this.orderInclude(),
+      });
+
+      // Log activity
+      await tx.employeeActivityLog.create({
+        data: {
+          tenantId,
+          userId: user.id,
+          action: EmployeeLogAction.CREATE_SALES_ORDER,
+          entity: 'SalesOrder',
+          entityId: id,
+          amount: computed.total,
+          metadata: { orderNumber: updated.orderNumber, isUpdate: true },
+        },
+      });
+
+      return updated;
     });
   }
 
@@ -564,6 +761,10 @@ export class OrdersService {
 
     if (status === 'OPEN') {
       return openOrderStatuses;
+    }
+
+    if (status === 'QUOTATION') {
+      return [SalesOrderStatus.QUOTATION];
     }
 
     if (!Object.values(SalesOrderStatus).includes(status as SalesOrderStatus)) {
@@ -704,7 +905,7 @@ export class OrdersService {
     };
   }
 
-  private generateOrderNumber() {
+  private generateOrderNumber(isQuotation = false) {
     const date = new Date();
     const stamp = date.toISOString().slice(0, 10).replace(/-/g, '');
     const time =
@@ -712,7 +913,43 @@ export class OrdersService {
       String(date.getMinutes()).padStart(2, '0') +
       String(date.getSeconds()).padStart(2, '0');
     const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
-    return `ORD-${stamp}-${time}-${suffix}`;
+    const prefix = isQuotation ? 'COT' : 'ORD';
+    return `${prefix}-${stamp}-${time}-${suffix}`;
+  }
+
+  private validateQuotationDocument(dto: CreateSalesOrderDto) {
+    const documentType = dto.quotationDocumentType;
+    const documentNumber = dto.quotationDocumentNumber?.trim();
+
+    if (!documentType || !documentNumber) {
+      throw new BadRequestException('Quotation requires document type and document number.');
+    }
+
+    if (documentType !== DocumentType.RNC && documentType !== DocumentType.CEDULA) {
+      throw new BadRequestException('Quotation document type must be RNC or CEDULA.');
+    }
+
+    const normalized = normalizeDominicanDocument(documentNumber);
+
+    if (documentType === DocumentType.RNC) {
+      if (normalized.length !== 9) {
+        throw new BadRequestException('El RNC debe tener 9 digitos.');
+      }
+
+      if (!validateDominicanRnc(normalized)) {
+        throw new BadRequestException('El RNC no es valido.');
+      }
+
+      return;
+    }
+
+    if (normalized.length !== 11) {
+      throw new BadRequestException('La cedula debe tener 11 digitos.');
+    }
+
+    if (!validateDominicanCedula(normalized)) {
+      throw new BadRequestException('La cedula no es valida.');
+    }
   }
 
   private buildOrderLogMetadata(
