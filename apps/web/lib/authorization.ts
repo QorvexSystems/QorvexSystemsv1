@@ -18,6 +18,17 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
     return false;
   }
 
+  if (session.role === 'ADMIN') {
+    const blockedPaths = ['/pos', '/cash/logs', '/cash/sessions'];
+    if (blockedPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+      return false;
+    }
+  }
+
+  if (pathname === '/quotations' || pathname.startsWith('/quotations/')) {
+    return isAdminSession(session);
+  }
+
   if (isAdminSession(session)) {
     return true;
   }

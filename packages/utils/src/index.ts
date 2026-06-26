@@ -5,3 +5,11 @@ export function toCurrency(value: number, currency = 'DOP') {
     maximumFractionDigits: 2,
   }).format(value);
 }
+
+export {
+  formatDominicanDocument,
+  normalizeDominicanDocument,
+  validateDominicanCedula,
+  validateDominicanDocument,
+  validateDominicanRnc,
+} from './dominican-documents';

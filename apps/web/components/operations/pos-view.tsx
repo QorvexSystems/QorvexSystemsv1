@@ -37,6 +37,7 @@ import {
 } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { isAdminSession } from '@/lib/authorization';
+import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
@@ -85,7 +86,7 @@ export function PosView() {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [brandFilter, setBrandFilter] = useState('ALL');
   const [selectedRegisterId, setSelectedRegisterId] = useState('');
-  const [openingAmount, setOpeningAmount] = useState(formatCurrencyInputFromNumber(5000));
+  const [openingAmount, setOpeningAmount] = useState(clearCurrencyInput());
   const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -111,7 +112,8 @@ export function PosView() {
     queryFn: () => getCashSessions(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session && isAdminSession(session)),
   });
-  const canCreateDirectSale = isAdminSession(session);
+  const canCreateDirectSale = false;
+  const isAdmin = isAdminSession(session);
   const productsQuery = useQuery({
     queryKey: ['pos-products-search', session?.tenantId, search],
     queryFn: () =>
@@ -208,7 +210,10 @@ export function PosView() {
     cart.map((item) => [item.product.id, item.quantity]),
   );
   const canCompleteSale =
-    cart.length > 0 && Boolean(currentCashSession) && (canCreateDirectSale || Boolean(loadedOrder));
+    !isAdmin &&
+    cart.length > 0 &&
+    Boolean(currentCashSession) &&
+    Boolean(loadedOrder);
   const selectedOpenSession = (cashSessionsQuery.data ?? []).find(
     (cashSession) =>
       cashSession.status === 'OPEN' && cashSession.cashRegister.id === selectedRegisterId,
@@ -240,9 +245,14 @@ export function PosView() {
         throw new Error('Sesion requerida.');
       }
 
+      const parsedOpeningAmount = parseCurrencyInput(openingAmount);
+      if (parsedOpeningAmount <= 0) {
+        throw new Error('El monto inicial debe ser mayor que 0.');
+      }
+
       return openCashSession(session.tenantId, session.accessToken, {
         cashRegisterId: selectedRegisterId,
-        openingAmount: parseCurrencyInput(openingAmount),
+        openingAmount: parsedOpeningAmount,
       });
     },
     onSuccess: async () => {
@@ -645,105 +655,48 @@ export function PosView() {
               currentUserId={session.user.id}
               claimingId={claimOrderMutation.variables?.id}
               isReleasing={releaseOrderMutation.isPending}
+              canChargeOrders={!isAdmin}
               onLoad={handleLoadOrder}
               onReleaseLoaded={releaseLoadedOrder}
             />
-            {canCreateDirectSale ? (
-              <>
-                <Card className="border-zinc-200 bg-zinc-50">
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <CardTitle>Venta directa</CardTitle>
-                        <CardDescription>Disponible solo para administradores.</CardDescription>
-                      </div>
-                      {lastScannedProduct ? (
-                        <Badge variant="success">Ultimo escaneo: {lastScannedProduct.name}</Badge>
-                      ) : null}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <BarcodeInput
-                      barcode={barcode}
-                      scannerEnabled={scannerEnabled}
-                      cameraActive={cameraActive}
-                      scannerMessage={scannerMessage}
-                      barcodeInputRef={barcodeInputRef}
-                      videoRef={videoRef}
-                      isPending={barcodeMutation.isPending}
-                      onBarcodeChange={setBarcode}
-                      onSubmit={(code) => barcodeMutation.mutate(code)}
-                      onEnableScanner={enableScanner}
-                      onDisableScanner={disableScanner}
-                      onStartCamera={startCameraScan}
-                    />
-
-                    <div className="grid gap-3 md:grid-cols-[1.2fr_0.9fr_0.9fr]">
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                          className="bg-white pl-9"
-                          placeholder="Buscar producto"
-                        />
-                      </div>
-                      <select
-                        value={categoryFilter}
-                        onChange={(event) => setCategoryFilter(event.target.value)}
-                        className="h-10 rounded-md border border-input bg-white px-3 text-sm"
-                      >
-                        <option value="ALL">Todos los tipos</option>
-                        {categories.map((category) => (
-                          <option key={category} value={category}>
-                            {category}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={brandFilter}
-                        onChange={(event) => setBrandFilter(event.target.value)}
-                        className="h-10 rounded-md border border-input bg-white px-3 text-sm"
-                      >
-                        <option value="ALL">Marca/proveedor</option>
-                        {brands.map((brand) => (
-                          <option key={brand} value={brand}>
-                            {brand}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <PosProductGrid
-                  products={filteredProducts}
-                  quantitiesByProduct={quantitiesByProduct}
-                  isLoading={productsQuery.isLoading}
-                  onAddProduct={addProduct}
-                />
-              </>
+            {isAdmin ? (
+              <Card className="border-zinc-200 bg-zinc-50">
+                <CardHeader>
+                  <CardTitle>Cobro solo por cajero</CardTitle>
+                  <CardDescription>
+                    El administrador no cobra desde caja. Los tickets pendientes deben ser cobrados
+                    por un cajero con sesion abierta.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
             ) : null}
           </div>
 
           <div className="space-y-3 xl:sticky xl:top-24">
             {loadedOrder ? (
-              <div className="flex flex-col gap-2 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05] sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                  Cobrando ticket pendiente {loadedOrder.orderNumber}. La factura se emitira al
-                  completar el cobro.
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="border-[#f36c10]/40 bg-white text-[#9a3f05] hover:bg-[#f36c10]/10"
-                  onClick={releaseLoadedOrder}
-                  disabled={releaseOrderMutation.isPending || completeSaleMutation.isPending}
-                >
-                  <X className="h-4 w-4" />
-                  Quitar y elegir otra
-                </Button>
+              <div className="flex flex-col gap-2 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    Cobrando ticket pendiente {loadedOrder.orderNumber}. La factura se emitira al
+                    completar el cobro.
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-[#f36c10]/40 bg-white text-[#9a3f05] hover:bg-[#f36c10]/10 shrink-0"
+                    onClick={releaseLoadedOrder}
+                    disabled={releaseOrderMutation.isPending || completeSaleMutation.isPending}
+                  >
+                    <X className="h-4 w-4" />
+                    Quitar y elegir otra
+                  </Button>
+                </div>
+                {loadedOrder.notes ? (
+                  <div className="mt-1 border-t border-[#f36c10]/20 pt-1 text-xs text-[#9a3f05]">
+                    <span className="font-semibold">Nota:</span> {loadedOrder.notes}
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <PosCart
@@ -751,28 +704,26 @@ export function PosView() {
               onUpdateQuantity={updateQuantity}
               onClear={clearCart}
               readOnly={cartReadOnly}
-              emptyMessage={
-                canCreateDirectSale
-                  ? undefined
-                  : 'Carga una orden pendiente desde la lista para poder cobrarla.'
-              }
+              emptyMessage="Carga una orden pendiente desde la lista para poder cobrarla."
             />
-            <PosPaymentPanel
-              customers={activeCustomers}
-              customerId={customerId}
-              documentType={documentType}
-              paymentMethod={paymentMethod}
-              amountReceived={amountReceived}
-              totals={totals}
-              message={message}
-              canCompleteSale={canCompleteSale}
-              isCompleting={completeSaleMutation.isPending}
-              onCustomerChange={setCustomerId}
-              onDocumentTypeChange={setDocumentType}
-              onPaymentMethodChange={setPaymentMethod}
-              onAmountReceivedChange={setAmountReceived}
-              onCompleteSale={() => completeSaleMutation.mutate()}
-            />
+            {!isAdmin ? (
+              <PosPaymentPanel
+                customers={activeCustomers}
+                customerId={customerId}
+                documentType={documentType}
+                paymentMethod={paymentMethod}
+                amountReceived={amountReceived}
+                totals={totals}
+                message={message}
+                canCompleteSale={canCompleteSale}
+                isCompleting={completeSaleMutation.isPending}
+                onCustomerChange={setCustomerId}
+                onDocumentTypeChange={setDocumentType}
+                onPaymentMethodChange={setPaymentMethod}
+                onAmountReceivedChange={setAmountReceived}
+                onCompleteSale={() => completeSaleMutation.mutate()}
+              />
+            ) : null}
 
             <CloseCashPanel
               canCloseCashSession={canCloseCashSession}
@@ -800,6 +751,7 @@ function SalesOrdersQueuePanel({
   currentUserId,
   claimingId,
   isReleasing,
+  canChargeOrders,
   onLoad,
   onReleaseLoaded,
 }: {
@@ -810,6 +762,7 @@ function SalesOrdersQueuePanel({
   currentUserId: string;
   claimingId?: string;
   isReleasing: boolean;
+  canChargeOrders: boolean;
   onLoad: (order: SalesOrder) => void;
   onReleaseLoaded: () => void;
 }) {
@@ -819,6 +772,9 @@ function SalesOrdersQueuePanel({
     ? orders.filter((order) =>
         [
           order.orderNumber,
+          order.clientName,
+          getOrderClientLabel(order),
+          getOrderSearchLabel(order),
           order.customer?.name,
           order.createdBy.name,
           order.claimedBy?.name,
@@ -858,9 +814,13 @@ function SalesOrdersQueuePanel({
                   Ticket cargado: {loadedOrder.orderNumber}
                 </p>
                 <p className="mt-1 text-xs text-[#9a3f05]">
-                  {loadedOrder.customer?.name ?? 'Consumidor final'} -{' '}
-                  {formatCurrency(Number(loadedOrder.total))}
+                  {getOrderSearchLabel(loadedOrder)} - {formatCurrency(Number(loadedOrder.total))}
                 </p>
+                {loadedOrder.notes ? (
+                  <p className="mt-2 text-xs text-[#9a3f05] bg-white/50 border border-[#f36c10]/20 rounded px-1.5 py-0.5 inline-block font-medium">
+                    Nota: {loadedOrder.notes}
+                  </p>
+                ) : null}
               </div>
               <Button
                 type="button"
@@ -886,7 +846,7 @@ function SalesOrdersQueuePanel({
               value={queueSearch}
               onChange={(event) => setQueueSearch(event.target.value)}
               className="bg-white pl-9"
-              placeholder="Buscar por ticket, cliente, ordenanza, monto o tiempo"
+              placeholder="Buscar por cliente, ticket, orden o monto"
             />
           </div>
         </div>
@@ -901,7 +861,7 @@ function SalesOrdersQueuePanel({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
+                      <p className="font-semibold text-zinc-950">{getOrderClientLabel(order)}</p>
                       <Badge variant={getStatusVariant(order.status)}>
                         {translateStatus(order.status)}
                       </Badge>
@@ -910,12 +870,19 @@ function SalesOrdersQueuePanel({
                       </Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {order.customer?.name ?? 'Consumidor final'} -{' '}
-                      {formatDate(order.sentToCashierAt ?? order.createdAt)}
-                    </p>
+                  {getOrderSearchLabel(order)} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Cliente: {getOrderClientLabel(order)}
+                </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Creada por {order.createdBy.name}
                     </p>
+                    {order.notes ? (
+                      <p className="mt-1 text-xs text-zinc-600 bg-amber-50 rounded-sm px-1.5 py-0.5 border border-amber-200 inline-block font-medium">
+                        Nota: {order.notes}
+                      </p>
+                    ) : null}
                     {order.claimedBy ? (
                       <p className="mt-1 text-xs text-warning">
                         Tomada por {order.claimedBy.name}
@@ -933,24 +900,28 @@ function SalesOrdersQueuePanel({
                   <span className="text-xs text-muted-foreground">
                     {order.items.length} producto(s)
                   </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => onLoad(order)}
-                    disabled={
-                      loadedOrderId === order.id ||
-                      claimingId === order.id ||
-                      (Boolean(loadedOrderId) && loadedOrderId !== order.id) ||
-                      (order.status === 'IN_CASHIER' && order.claimedBy?.id !== currentUserId)
-                    }
-                  >
-                    <ClipboardCheck className="h-4 w-4" />
-                    {loadedOrderId === order.id
-                      ? 'Cargada'
-                      : order.status === 'IN_CASHIER'
-                        ? 'Tomada'
-                        : 'Cobrar'}
-                  </Button>
+                  {canChargeOrders ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => onLoad(order)}
+                      disabled={
+                        loadedOrderId === order.id ||
+                        claimingId === order.id ||
+                        (Boolean(loadedOrderId) && loadedOrderId !== order.id) ||
+                        (order.status === 'IN_CASHIER' && order.claimedBy?.id !== currentUserId)
+                      }
+                    >
+                      <ClipboardCheck className="h-4 w-4" />
+                      {loadedOrderId === order.id
+                        ? 'Cargada'
+                        : order.status === 'IN_CASHIER'
+                          ? 'Tomada'
+                          : 'Cobrar'}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Solo cajero</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -1079,7 +1050,9 @@ function ClosedCashPanel({
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="openingAmount">Monto inicial</Label>
+              <Label htmlFor="openingAmount">
+                Monto inicial <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="openingAmount"
                 type="text"
@@ -1097,7 +1070,11 @@ function ClosedCashPanel({
               <Button
                 type="submit"
                 disabled={
-                  !selectedRegisterId || isOpening || !canOpenCashSession || Boolean(occupiedBy)
+                  !selectedRegisterId ||
+                  isOpening ||
+                  !canOpenCashSession ||
+                  Boolean(occupiedBy) ||
+                  parseCurrencyInput(openingAmount) <= 0
                 }
               >
                 <DoorOpen className="h-4 w-4" />

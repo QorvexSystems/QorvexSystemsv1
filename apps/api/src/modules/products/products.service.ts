@@ -12,6 +12,8 @@ import {
   Prisma,
   ProductStatus,
 } from '@qorvex/database';
+import { mkdir, writeFile } from 'fs/promises';
+import path from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getBarcodeLookupCandidates, normalizeBarcodeInput } from '../../common/utils/barcode';
 import { AuditService } from '../audit/audit.service';
@@ -423,7 +425,9 @@ export class ProductsService {
       throw new BadRequestException('Product image file is required.');
     }
 
-    if (!allowedProductImageTypes.has(file.mimetype ?? '')) {
+    const mimetype = resolveProductImageMimeType(file);
+
+    if (!allowedProductImageTypes.has(mimetype)) {
       throw new BadRequestException('Product image must be JPG, PNG, WEBP, or GIF.');
     }
 
@@ -436,10 +440,41 @@ export class ProductsService {
     const bucket =
       this.config.get<string>('SUPABASE_PRODUCT_IMAGE_BUCKET') || defaultProductImageBucket;
 
-    if (!supabaseUrl || !supabaseKey) {
-      throw new BadRequestException('Product image storage is not configured.');
-    }
+    const uploadResult =
+      supabaseUrl && supabaseKey
+        ? await this.uploadImageToSupabase({
+            tenantId,
+            file: { ...file, mimetype },
+            supabaseUrl,
+            supabaseKey,
+            bucket,
+          })
+        : await this.uploadImageToLocalPublic(tenantId, { ...file, mimetype });
 
+    await this.audit.log({
+      tenantId,
+      userId,
+      action: 'PRODUCT_IMAGE_UPLOADED',
+      entity: 'ProductImage',
+      entityId: uploadResult.path,
+      metadata: {
+        filename: file.originalname,
+        imageUrl: uploadResult.imageUrl,
+        storage: uploadResult.bucket,
+      },
+    });
+
+    return uploadResult;
+  }
+
+  private async uploadImageToSupabase(input: {
+    tenantId: string;
+    file: UploadedProductImageFile;
+    supabaseUrl: string;
+    supabaseKey: string;
+    bucket: string;
+  }) {
+    const { tenantId, file, supabaseUrl, supabaseKey, bucket } = input;
     const extension = getImageExtension(file.originalname, file.mimetype);
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
     const objectPath = `${tenantId}/${filename}`;
@@ -463,24 +498,25 @@ export class ProductsService {
       throw new BadRequestException('Product image could not be uploaded.');
     }
 
-    const imageUrl = `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${encodeStoragePath(objectPath)}`;
-
-    await this.audit.log({
-      tenantId,
-      userId,
-      action: 'PRODUCT_IMAGE_UPLOADED',
-      entity: 'ProductImage',
-      entityId: objectPath,
-      metadata: {
-        filename: file.originalname,
-        imageUrl,
-      },
-    });
-
     return {
-      imageUrl,
+      imageUrl: `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${encodeStoragePath(objectPath)}`,
       path: objectPath,
       bucket,
+    };
+  }
+
+  private async uploadImageToLocalPublic(tenantId: string, file: UploadedProductImageFile) {
+    const uploadsRoot = resolveLocalProductUploadsRoot();
+    const extension = getImageExtension(file.originalname, file.mimetype);
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+    const tenantDir = path.join(uploadsRoot, tenantId);
+    await mkdir(tenantDir, { recursive: true });
+    await writeFile(path.join(tenantDir, filename), file.buffer);
+
+    return {
+      imageUrl: `/product-uploads/${tenantId}/${filename}`,
+      path: `${tenantId}/${filename}`,
+      bucket: 'local-public',
     };
   }
 
@@ -651,6 +687,37 @@ function normalizeCodeSegment(value: string) {
     .replace(/^-+|-+$/g, '')
     .replace(/-{2,}/g, '-')
     .toUpperCase();
+}
+
+function resolveProductImageMimeType(file: UploadedProductImageFile) {
+  if (file.mimetype && allowedProductImageTypes.has(file.mimetype)) {
+    return file.mimetype;
+  }
+
+  const extension = file.originalname
+    .split('.')
+    .pop()
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  const mimeByExtension: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    gif: 'image/gif',
+  };
+
+  return extension && mimeByExtension[extension] ? mimeByExtension[extension] : 'image/jpeg';
+}
+
+function resolveLocalProductUploadsRoot() {
+  const candidates = [
+    path.resolve(process.cwd(), '../web/public/product-uploads'),
+    path.resolve(process.cwd(), 'apps/web/public/product-uploads'),
+    path.resolve(process.cwd(), '../../apps/web/public/product-uploads'),
+  ];
+
+  return candidates[0];
 }
 
 function getImageExtension(filename: string, mimetype?: string) {

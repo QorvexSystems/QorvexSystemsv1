@@ -99,9 +99,15 @@ enum SalesOrderStatus {
   CREATED
   SENT_TO_CASHIER
   IN_CASHIER
+  QUOTATION
   COMPLETED
   CANCELLED
   EXPIRED
+}
+
+enum SalesOrderDestination {
+  CASH_SALE
+  QUOTATION
 }
 
 enum ElectronicDocumentProvider {
@@ -549,6 +555,10 @@ model SalesOrder {
   id              String           @id @default(cuid())
   tenantId        String
   customerId      String?
+  destination     SalesOrderDestination @default(CASH_SALE)
+  clientName      String?
+  quotationDocumentType DocumentType?
+  quotationDocumentNumber String?
   orderNumber     String
   status          SalesOrderStatus @default(SENT_TO_CASHIER)
   subtotal        Decimal          @default(0) @db.Decimal(12, 2)

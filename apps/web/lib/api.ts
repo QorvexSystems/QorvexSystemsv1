@@ -217,6 +217,10 @@ export type SalesOrder = {
   id: string;
   tenantId: string;
   customerId: string | null;
+  destination: 'CASH_SALE' | 'QUOTATION';
+  clientName: string | null;
+  quotationDocumentType: string | null;
+  quotationDocumentNumber: string | null;
   orderNumber: string;
   status: string;
   subtotal: string;
@@ -285,7 +289,11 @@ export type SalesOrder = {
 };
 
 export type CreateSalesOrderPayload = {
+  destination: 'CASH_SALE' | 'QUOTATION';
+  clientName?: string;
   customerId?: string;
+  quotationDocumentType?: 'RNC' | 'CEDULA';
+  quotationDocumentNumber?: string;
   notes?: string;
   items: Array<{
     productId: string;
@@ -584,6 +592,21 @@ const apiMessageTranslations: Record<string, string> = {
   'Import file cannot be larger than 10 MB.':
     'El archivo de importacion no puede pesar mas de 10 MB.',
   'Import file does not contain sheets.': 'El archivo no contiene hojas para importar.',
+  'Opening amount must be greater than zero.': 'El monto inicial debe ser mayor que 0.',
+  'Admins cannot complete POS sales. Cashiers must charge orders.':
+    'El administrador no puede cobrar en caja. El cajero debe cobrar la orden.',
+  'Direct POS sales are disabled. Load an order to charge.':
+    'Las ventas directas estan deshabilitadas. Carga una orden para cobrar.',
+  'Admins cannot claim sales orders for charging.':
+    'El administrador no puede tomar ordenes para cobrar en caja.',
+  'Quotation requires document type and document number.':
+    'La cotizacion requiere tipo y numero de documento.',
+  'Quotation document type must be RNC or CEDULA.':
+    'El tipo de documento de la cotizacion debe ser RNC o cedula.',
+  'El RNC debe tener 9 digitos.': 'El RNC debe tener 9 digitos.',
+  'El RNC no es valido.': 'El RNC no es valido.',
+  'La cedula debe tener 11 digitos.': 'La cedula debe tener 11 digitos.',
+  'La cedula no es valida.': 'La cedula no es valida.',
 };
 
 async function fetchJson<T>(path: string, options?: RequestInit) {
@@ -815,6 +838,26 @@ export function cancelSalesOrder(
     method: 'POST',
     headers: tenantHeaders(tenantId, accessToken),
     body: JSON.stringify({ reason }),
+  });
+}
+
+export function updateSalesOrder(
+  tenantId: string,
+  accessToken: string,
+  orderId: string,
+  payload: CreateSalesOrderPayload,
+) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function acceptSalesOrder(tenantId: string, accessToken: string, orderId: string) {
+  return fetchJson<SalesOrder>(`/orders/${orderId}/accept`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
   });
 }
 

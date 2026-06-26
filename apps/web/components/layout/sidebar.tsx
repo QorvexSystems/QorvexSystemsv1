@@ -142,6 +142,16 @@ export function SidebarContent({
 
 export function getVisibleNavigation(session: AuthSession | null) {
   if (isAdminSession(session)) {
+    if (session?.role === 'ADMIN') {
+      return navigation
+        .filter((item) => item.href !== '/cash/logs' && item.href !== '/cash/sessions')
+        .map((item) => {
+          if (item.href === '/pos') {
+            return { ...item, name: 'Cotizaciones', href: '/quotations', icon: FileText };
+          }
+          return item;
+        });
+    }
     return navigation;
   }
 

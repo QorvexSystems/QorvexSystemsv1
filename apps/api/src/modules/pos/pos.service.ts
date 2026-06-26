@@ -23,6 +23,7 @@ import {
   Product,
   ProductStatus,
   Role,
+  SalesOrderDestination,
   SalesOrderStatus,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -130,8 +131,12 @@ export class PosService {
   async completeSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
     const membership = await this.ensureCanUsePos(tenantId, user);
 
-    if (!this.isAdminMembership(membership) && !dto.orderId) {
-      throw new ForbiddenException('Cashier can only charge orders sent to cashier.');
+    if (this.isAdminMembership(membership)) {
+      throw new ForbiddenException('Admins cannot complete POS sales. Cashiers must charge orders.');
+    }
+
+    if (!dto.orderId) {
+      throw new ForbiddenException('Direct POS sales are disabled. Load an order to charge.');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -402,6 +407,7 @@ export class PosService {
       where: {
         id: orderId,
         tenantId,
+        destination: SalesOrderDestination.CASH_SALE,
         invoiceId: null,
         OR: [
           { status: SalesOrderStatus.SENT_TO_CASHIER },

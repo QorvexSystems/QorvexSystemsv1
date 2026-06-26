@@ -69,6 +69,10 @@ export class CashService {
   async openSession(tenantId: string, user: AuthenticatedUser, dto: OpenCashSessionDto) {
     this.requirePermission(tenantId, user, 'canOpenCashSession');
 
+    if (dto.openingAmount <= 0) {
+      throw new BadRequestException('Opening amount must be greater than zero.');
+    }
+
     const register = await this.prisma.cashRegister.findFirst({
       where: {
         id: dto.cashRegisterId,
