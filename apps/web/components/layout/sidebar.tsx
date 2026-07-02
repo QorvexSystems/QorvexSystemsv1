@@ -26,6 +26,7 @@ export const navigation: Array<{ name: string; href: string; icon: LucideIcon; p
   { name: 'Panel', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Caja POS', href: '/pos', icon: ShoppingCart, primary: true },
   { name: 'Toma de ordenes', href: '/orders', icon: ClipboardPlus, primary: true },
+  { name: 'Cotizaciones', href: '/quotations', icon: FileText },
   { name: 'Productos', href: '/products', icon: Package },
   { name: 'Clientes', href: '/customers', icon: Users },
   { name: 'Facturas', href: '/invoices', icon: FileText, primary: true },
@@ -143,15 +144,9 @@ export function SidebarContent({
 export function getVisibleNavigation(session: AuthSession | null) {
   if (isAdminSession(session)) {
     if (session?.role === 'ADMIN') {
-      return navigation
-        .filter((item) => item.href !== '/cash/logs' && item.href !== '/cash/sessions')
-        .map((item) => {
-          if (item.href === '/pos') {
-            return { ...item, name: 'Cotizaciones', href: '/quotations', icon: FileText };
-          }
-          return item;
-        });
+      return navigation.filter((item) => item.href !== '/pos');
     }
+
     return navigation;
   }
 
