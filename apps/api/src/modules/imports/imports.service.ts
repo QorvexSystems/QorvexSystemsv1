@@ -408,49 +408,101 @@ function parseNumericValue(value: unknown) {
 }
 
 function getProductUnit(value?: string) {
-  const key = value?.trim().toLowerCase();
+  const key = normalizeImportAlias(value);
 
   if (!key) {
     return undefined;
   }
 
   const units: Record<string, ProductUnit> = {
+    u: ProductUnit.UNIT,
+    und: ProductUnit.UNIT,
+    uds: ProductUnit.UNIT,
     unidad: ProductUnit.UNIT,
+    unidades: ProductUnit.UNIT,
     unit: ProductUnit.UNIT,
+    units: ProductUnit.UNIT,
     caja: ProductUnit.BOX,
+    cajas: ProductUnit.BOX,
     box: ProductUnit.BOX,
+    boxes: ProductUnit.BOX,
     paquete: ProductUnit.PACK,
+    paquetes: ProductUnit.PACK,
     pack: ProductUnit.PACK,
+    packs: ProductUnit.PACK,
     saco: ProductUnit.BAG,
+    sacos: ProductUnit.BAG,
     bag: ProductUnit.BAG,
+    bags: ProductUnit.BAG,
     rollo: ProductUnit.ROLL,
+    rollos: ProductUnit.ROLL,
     roll: ProductUnit.ROLL,
+    rolls: ProductUnit.ROLL,
+    m: ProductUnit.METER,
     metro: ProductUnit.METER,
+    metros: ProductUnit.METER,
     meter: ProductUnit.METER,
+    meters: ProductUnit.METER,
     mt: ProductUnit.METER,
+    mts: ProductUnit.METER,
     pie: ProductUnit.FOOT,
+    pies: ProductUnit.FOOT,
     foot: ProductUnit.FOOT,
+    feet: ProductUnit.FOOT,
     ft: ProductUnit.FOOT,
     yarda: ProductUnit.YARD,
+    yardas: ProductUnit.YARD,
     yard: ProductUnit.YARD,
     yards: ProductUnit.YARD,
     yd: ProductUnit.YARD,
     yds: ProductUnit.YARD,
     libra: ProductUnit.POUND,
-    pound: ProductUnit.POUND,
+    libras: ProductUnit.POUND,
     lb: ProductUnit.POUND,
     lbs: ProductUnit.POUND,
+    pound: ProductUnit.POUND,
+    pounds: ProductUnit.POUND,
+    gal: ProductUnit.GALLON,
+    gln: ProductUnit.GALLON,
     galon: ProductUnit.GALLON,
+    galones: ProductUnit.GALLON,
     gallon: ProductUnit.GALLON,
+    gallons: ProductUnit.GALLON,
+    gl: ProductUnit.GALLON,
+    l: ProductUnit.LITER,
+    lt: ProductUnit.LITER,
+    lts: ProductUnit.LITER,
     litro: ProductUnit.LITER,
+    litros: ProductUnit.LITER,
     liter: ProductUnit.LITER,
+    liters: ProductUnit.LITER,
+    kg: ProductUnit.KILOGRAM,
+    kgs: ProductUnit.KILOGRAM,
     kilogramo: ProductUnit.KILOGRAM,
+    kilogramos: ProductUnit.KILOGRAM,
     kilogram: ProductUnit.KILOGRAM,
+    kilograms: ProductUnit.KILOGRAM,
     servicio: ProductUnit.SERVICE,
+    servicios: ProductUnit.SERVICE,
     service: ProductUnit.SERVICE,
+    services: ProductUnit.SERVICE,
   };
 
-  return units[key];
+  const compactKey = key.replace(/\s+/g, '');
+  const enumKey = compactKey.toUpperCase();
+  const enumValue = Object.values(ProductUnit).find((unit) => unit === enumKey);
+
+  return units[key] ?? units[compactKey] ?? enumValue;
+}
+
+function normalizeImportAlias(value?: string) {
+  return value
+    ?.trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function getProductStatus(value?: string) {
