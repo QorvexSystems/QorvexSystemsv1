@@ -9,6 +9,7 @@ import { getSalesOrder } from '@/lib/api';
 import { getOrderClientLabel } from '@/lib/order-client';
 import { translateStatus } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatQuantity } from './pos/pos-utils';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function QuotationPrint({
@@ -114,7 +115,7 @@ export function QuotationPrint({
             {order.items.map((item) => (
               <tr key={item.id} className="border-b border-zinc-100">
                 <td className="py-2">{item.description}</td>
-                <td className="py-2 text-right">{item.quantity}</td>
+                <td className="py-2 text-right">{formatQuantity(item.quantity)}</td>
                 <td className="py-2 text-right">{formatCurrency(Number(item.unitPrice))}</td>
                 <td className="py-2 text-right">{formatCurrency(Number(item.total))}</td>
               </tr>

@@ -12,6 +12,8 @@ const statusLabels: Record<string, string> = {
   OPEN: 'Abierta',
   CLOSED: 'Cerrada',
   CREATED: 'Creada',
+  REQUESTED: 'Solicitada',
+  APPROVED: 'Aprobada',
   SENT_TO_CASHIER: 'En caja',
   IN_CASHIER: 'Tomada en caja',
   QUOTATION: 'Cotizacion',
@@ -51,6 +53,7 @@ const statusVariants: Record<string, BadgeVariant> = {
   READY: 'success',
   IMPORTED: 'success',
   COMPLETED: 'success',
+  APPROVED: 'success',
   PAID: 'success',
   ACCEPTED: 'success',
   INACTIVE: 'outline',
@@ -63,6 +66,7 @@ const statusVariants: Record<string, BadgeVariant> = {
   QUOTATION: 'outline',
   VALIDATING: 'warning',
   ISSUED: 'warning',
+  REQUESTED: 'warning',
   PARTIALLY_PAID: 'warning',
   PENDING: 'warning',
   PROCESSING: 'warning',
@@ -88,7 +92,7 @@ const statusVariants: Record<string, BadgeVariant> = {
 };
 
 const roleLabels: Record<string, string> = {
-  QORVEX_SUPER_ADMIN: 'Super admin Qorvex',
+  QORVEX_SUPER_ADMIN: 'Super admin CoreStack',
   SUPER_ADMIN: 'Super admin',
   ADMIN: 'Administrador',
   CASHIER: 'Cajero',
@@ -124,9 +128,10 @@ const productUnitLabels: Record<string, string> = {
   PACK: 'Paquete',
   BAG: 'Saco',
   ROLL: 'Rollo',
-  METER: 'Metro',
-  FOOT: 'Pie',
-  POUND: 'Libra',
+  METER: 'Metro (MT)',
+  FOOT: 'Pie (FT)',
+  YARD: 'Yarda (YD)',
+  POUND: 'Libra (LB)',
   GALLON: 'Galon',
   LITER: 'Litro',
   KILOGRAM: 'Kilogramo',
@@ -192,6 +197,10 @@ const employeeActionLabels: Record<string, string> = {
   CASH_IN: 'registro entrada de efectivo',
   CASH_OUT: 'registro salida de efectivo',
   INVENTORY_ADJUSTMENT: 'ajusto inventario',
+  REQUEST_RETURN: 'solicito una devolucion',
+  APPROVE_RETURN: 'aprobo una devolucion',
+  REJECT_RETURN: 'rechazo una devolucion',
+  COMPLETE_RETURN: 'completo una devolucion',
 };
 
 const entityLabels: Record<string, string> = {
@@ -211,6 +220,8 @@ const entityLabels: Record<string, string> = {
   CashRegister: 'Caja fisica',
   CashSession: 'Sesion de caja',
   CashMovement: 'Movimiento de caja',
+  ReturnRequest: 'Devolucion',
+  ReturnRequestItem: 'Linea de devolucion',
   EmployeeProfile: 'Empleado',
   FiscalSequence: 'Secuencia fiscal',
   ImportBatch: 'Lote de importacion',

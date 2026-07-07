@@ -5,7 +5,13 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import type { Product } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { canAddProduct, getAvailableStock, getProductInitials, getProductPrice } from './pos-utils';
+import {
+  canAddProduct,
+  formatQuantity,
+  getAvailableStock,
+  getProductInitials,
+  getProductPrice,
+} from './pos-utils';
 
 type PosProductGridProps = {
   products: Product[];
@@ -47,7 +53,7 @@ export function PosProductGrid({
       {products.map((product) => {
         const quantityInCart = quantitiesByProduct[product.id] ?? 0;
         const availableStock = getAvailableStock(product);
-        const lowStock = product.trackInventory && availableStock <= product.minStock;
+        const lowStock = product.trackInventory && availableStock <= Number(product.minStock);
         const outOfStock = product.trackInventory && availableStock <= 0;
         const disabled = !canAddProduct(product, quantityInCart);
 
@@ -69,7 +75,11 @@ export function PosProductGrid({
                   </p>
                 </div>
                 <Badge variant={lowStock || outOfStock ? 'danger' : 'outline'}>
-                  {outOfStock ? 'Sin stock' : product.trackInventory ? availableStock : 'Servicio'}
+                  {outOfStock
+                    ? 'Sin stock'
+                    : product.trackInventory
+                      ? formatQuantity(availableStock)
+                      : 'Servicio'}
                 </Badge>
               </div>
 
@@ -85,7 +95,7 @@ export function PosProductGrid({
 
               {quantityInCart ? (
                 <p className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
-                  En carrito: {quantityInCart}
+                  En carrito: {formatQuantity(quantityInCart)}
                 </p>
               ) : null}
             </div>
@@ -107,6 +117,7 @@ function ProductImage({ product }: { product: Product }) {
           alt={product.name}
           className="max-h-full max-w-full object-contain"
           loading="lazy"
+          referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
         />
       </div>

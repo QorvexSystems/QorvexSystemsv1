@@ -16,6 +16,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PosModule } from './modules/pos/pos.module';
 import { ProductsModule } from './modules/products/products.module';
+import { ReturnsModule } from './modules/returns/returns.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -42,6 +43,7 @@ import { PrismaModule } from './prisma/prisma.module';
     InvoicesModule,
     OrdersModule,
     PosModule,
+    ReturnsModule,
     DashboardModule,
     AuditModule,
   ],

@@ -6,7 +6,7 @@ export class HealthController {
   check() {
     return {
       status: 'ok',
-      service: 'qorvex-api',
+      service: 'corestack-api',
       timestamp: new Date().toISOString(),
     };
   }

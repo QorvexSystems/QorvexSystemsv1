@@ -59,5 +59,5 @@ export async function listenQorvexApi(app: INestApplication) {
   const config = app.get(ConfigService);
   const port = config.get<number>('API_PORT', 4000);
   await app.listen(port);
-  console.log(`Qorvex API listening on http://localhost:${port}`);
+  console.log(`CoreStack API listening on http://localhost:${port}`);
 }

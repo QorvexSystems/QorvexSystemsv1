@@ -3,8 +3,12 @@ import './globals.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'Qorvex Systems',
-  description: 'Custom SaaS/ERP foundation for Qorvex Systems.',
+  title: 'Ferreteria RIVNU',
+  description: 'POS, facturacion e inventario para Ferreteria RIVNU.',
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

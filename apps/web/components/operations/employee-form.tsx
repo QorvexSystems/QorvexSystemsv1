@@ -151,7 +151,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
     <div className="space-y-6">
       <ModuleHeader
         title={employeeId ? 'Editar empleado' : 'Nuevo empleado'}
-        description="Controla accesos operativos de Ferreteria RIVNU sin mezclar usuarios internos de Qorvex."
+        description="Controla accesos operativos de Ferreteria RIVNU sin mezclar usuarios internos de CoreStack."
       />
 
       <Card>

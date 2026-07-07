@@ -62,6 +62,9 @@ export function ProductForm({ productId }: { productId?: string }) {
   const [form, setForm] = useState<ProductFormState>(defaultState);
   const [loadedProductId, setLoadedProductId] = useState<string | null>(null);
   const [imagePreviewFailed, setImagePreviewFailed] = useState(false);
+  const basePrice = parseCurrencyInput(form.price);
+  const discountPrice = formatCurrencyInputFromNumber(basePrice * 0.9);
+  const preferredPrice = formatCurrencyInputFromNumber(basePrice * 0.82);
 
   const productQuery = useQuery({
     queryKey: ['product', productId, session?.tenantId],
@@ -138,10 +141,32 @@ export function ProductForm({ productId }: { productId?: string }) {
 
       return uploadProductImage(session.tenantId, session.accessToken, file);
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       updateField('imageUrl', result.imageUrl);
+
+      if (productId && session) {
+        try {
+          await updateProduct(session.tenantId, session.accessToken, productId, {
+            imageUrl: result.imageUrl,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ['product', productId, session.tenantId],
+          });
+          await queryClient.invalidateQueries({ queryKey: ['products'] });
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : 'La imagen subio, pero no se pudo guardar en el producto.',
+          );
+          return;
+        }
+      }
+
       toast.success('Imagen cargada', {
-        description: 'La imagen del producto se subio a Supabase.',
+        description: productId
+          ? 'La imagen del producto se guardo correctamente.'
+          : 'La imagen quedo lista para guardar el producto.',
       });
     },
     onError: (error) => {
@@ -169,6 +194,12 @@ export function ProductForm({ productId }: { productId?: string }) {
       return;
     }
 
+    const parsedStock = Number(form.stock);
+    if (Number.isNaN(parsedStock) || parsedStock < 0) {
+      toast.error('El stock actual debe ser un numero valido.');
+      return;
+    }
+
     const parsedMinStock = Number(form.minStock);
     if (Number.isNaN(parsedMinStock) || parsedMinStock < 0) {
       toast.error('El stock minimo debe ser un numero valido.');
@@ -189,7 +220,7 @@ export function ProductForm({ productId }: { productId?: string }) {
         <CardHeader>
           <CardTitle>Ficha del producto</CardTitle>
           <CardDescription>
-            Qorvex valida duplicados de SKU y codigo de barras dentro del tenant RIVNU.
+            CoreStack valida duplicados de SKU y codigo de barras dentro del tenant RIVNU.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -255,14 +286,20 @@ export function ProductForm({ productId }: { productId?: string }) {
                 {form.imageUrl ? (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md border border-border bg-zinc-50 p-3">
                     {imagePreviewFailed ? (
-                      <span className="text-sm text-muted-foreground">
-                        No se pudo cargar la imagen.
-                      </span>
+                      <div className="max-w-sm text-center text-sm text-muted-foreground">
+                        <p>No se pudo cargar la imagen.</p>
+                        <p className="mt-1 text-xs">
+                          Usa un enlace directo a una imagen JPG, PNG, WEBP o GIF, o sube el
+                          archivo desde tu equipo.
+                        </p>
+                      </div>
                     ) : (
                       <img
                         src={form.imageUrl}
                         alt="Vista previa del producto"
                         className="max-h-full max-w-full object-contain"
+                        referrerPolicy="no-referrer"
+                        onLoad={() => setImagePreviewFailed(false)}
                         onError={() => setImagePreviewFailed(true)}
                       />
                     )}
@@ -284,9 +321,11 @@ export function ProductForm({ productId }: { productId?: string }) {
               >
                 <option value="UNIT">Unidad</option>
                 <option value="BAG">Saco</option>
-                <option value="METER">Metro</option>
+                <option value="METER">Metro (MT)</option>
+                <option value="FOOT">Pie (FT)</option>
+                <option value="YARD">Yarda (YD)</option>
                 <option value="ROLL">Rollo</option>
-                <option value="POUND">Libra</option>
+                <option value="POUND">Libra (LB/POUND)</option>
                 <option value="GALLON">Galon</option>
                 <option value="PACK">Paquete</option>
               </select>
@@ -303,17 +342,43 @@ export function ProductForm({ productId }: { productId?: string }) {
               </select>
             </Field>
             <Field label="Precio (RD$)" required>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={form.price}
-                onChange={(event) =>
-                  updateField('price', sanitizeCurrencyInput(event.target.value))
-                }
-                onBlur={(event) => updateField('price', formatCurrencyInput(event.target.value))}
-                onFocus={(event) => event.currentTarget.select()}
-                required
-              />
+              <div className="space-y-3">
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.price}
+                  onChange={(event) =>
+                    updateField('price', sanitizeCurrencyInput(event.target.value))
+                  }
+                  onBlur={(event) => updateField('price', formatCurrencyInput(event.target.value))}
+                  onFocus={(event) => event.currentTarget.select()}
+                  required
+                />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Precio descuento (10%)
+                    </Label>
+                    <Input
+                      value={discountPrice}
+                      readOnly
+                      tabIndex={-1}
+                      className="bg-zinc-100 text-zinc-600"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Cliente preferencial (18%)
+                    </Label>
+                    <Input
+                      value={preferredPrice}
+                      readOnly
+                      tabIndex={-1}
+                      className="bg-zinc-100 text-zinc-600"
+                    />
+                  </div>
+                </div>
+              </div>
             </Field>
             <Field label="Costo (RD$)">
               <Input
@@ -338,6 +403,8 @@ export function ProductForm({ productId }: { productId?: string }) {
               <Input
                 type="number"
                 min="0"
+                step="0.001"
+                inputMode="decimal"
                 value={form.stock}
                 onChange={(event) => updateField('stock', event.target.value)}
                 required
@@ -347,6 +414,8 @@ export function ProductForm({ productId }: { productId?: string }) {
               <Input
                 type="number"
                 min="0"
+                step="0.001"
+                inputMode="decimal"
                 value={form.minStock}
                 onChange={(event) => updateField('minStock', event.target.value)}
                 required

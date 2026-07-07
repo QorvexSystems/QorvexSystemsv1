@@ -1,6 +1,6 @@
-# Qorvex Systems
+# CoreStack
 
-Qorvex Systems is a custom SaaS/ERP foundation for multi-company business management in the Dominican Republic. This repository intentionally does not use Odoo, Supabase, fake DGII logic, microservices, or premature infrastructure complexity.
+CoreStack is a custom SaaS/ERP foundation for multi-company business management in the Dominican Republic. This repository intentionally does not use Odoo, Supabase, fake DGII logic, microservices, or premature infrastructure complexity.
 
 ## Stack
 
@@ -85,7 +85,7 @@ Demo credentials:
 ```text
 RIVNU admin: admin@rivnu.local / DemoPassword123!
 RIVNU cashier: cajero@rivnu.local / DemoPassword123!
-Qorvex platform: superadmin@qorvex.local / DemoPassword123!
+CoreStack platform: superadmin@corestack.local / DemoPassword123!
 ```
 
 Login and call protected endpoints:
@@ -113,11 +113,11 @@ Tenant-scoped business endpoints require both `Authorization: Bearer <token>` an
 - The dashboard stores the demo JWT in local storage and fetches real summary data from the API.
 - Operational modules for dashboard, POS, products, customers, invoices, employees, cash logs, cash sessions, imports and fiscal sequences read/write through the API using PostgreSQL data.
 
-## RIVNU Data And Qorvex Core
+## RIVNU Data And CoreStack Core
 
-The current seed creates the operational tenant `Ferreteria RIVNU` and a separate internal provider tenant `Qorvex Systems`.
+The current seed creates the operational tenant `Ferreteria RIVNU` and a separate internal provider tenant `CoreStack`.
 
-RIVNU users only operate RIVNU tenant data: POS, invoices, customers, products, inventory, employees, cash sessions, cash movements and fiscal sequences all require tenant context. Qorvex is the platform/core provider and appears in the UI as a secondary "Powered by Qorvex" brand, not as the customer business.
+RIVNU users only operate RIVNU tenant data: POS, invoices, customers, products, inventory, employees, cash sessions, cash movements and fiscal sequences all require tenant context. CoreStack is the platform/core provider and appears in the UI as a secondary "Powered by CoreStack" brand, not as the customer business.
 
 The seed data is persisted in PostgreSQL and is not hardcoded in the frontend. It is a development starting dataset for RIVNU operations: hardware-store products, barcodes, opening stock, customers, cash session, fiscal sequences, paid/pending/cancelled invoices, payments and employee logs. It is not RIVNU's historical production data. When the client provides real catalog/customers/opening inventory, it should be loaded through the API or the prepared import module.
 
@@ -170,7 +170,7 @@ The backend includes a `BillingProvider` abstraction and a `MockBillingProvider`
 Recommended foundation commit:
 
 ```text
-feat: initialize Qorvex custom SaaS foundation
+feat: initialize CoreStack custom SaaS foundation
 ```
 
 ## Next Modules

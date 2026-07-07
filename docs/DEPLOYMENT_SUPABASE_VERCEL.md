@@ -2,7 +2,7 @@
 
 Fecha de corte: 2026-06-21
 
-Esta guia explica como ejecutar Qorvex Systems usando Supabase solo como PostgreSQL gestionado y Vercel como plataforma temporal para web/API. La logica de negocio debe seguir en NestJS. El frontend debe seguir hablando con la API NestJS. No se usa Supabase Auth, Supabase REST ni acceso directo a tablas desde el frontend en esta fase.
+Esta guia explica como ejecutar CoreStack usando Supabase solo como PostgreSQL gestionado y Vercel como plataforma temporal para web/API. La logica de negocio debe seguir en NestJS. El frontend debe seguir hablando con la API NestJS. No se usa Supabase Auth, Supabase REST ni acceso directo a tablas desde el frontend en esta fase.
 
 ## 1. Arquitectura temporal
 
@@ -24,8 +24,8 @@ Supabase se usa solo como Postgres porque el sistema ya tiene auth, permisos, ai
 
 Regla de mantenimiento:
 
-- `qorvex-api`: base de datos, Auth, Prisma, JWT, CORS, backend y logica de negocio.
-- `qorvex-web`: UI, login page, dashboard, POS, formularios y `NEXT_PUBLIC_API_URL`.
+- `corestack-api`: base de datos, Auth, Prisma, JWT, CORS, backend y logica de negocio.
+- `corestack-web`: UI, login page, dashboard, POS, formularios y `NEXT_PUBLIC_API_URL`.
 - Cambios de codigo: push/merge a `main` redeploya los proyectos configurados en Vercel.
 - Cambios de variables: actualizar Vercel Settings > Environment Variables y redeploy manual.
 - Cambios de Prisma schema: crear migracion local, revisar SQL, aplicar con `db:migrate:deploy` en Supabase y redeployar API si hace falta.
@@ -54,7 +54,7 @@ Configurar en `.env`, `.env.local`, `.env.production.local` o en Vercel Environm
 ```env
 DATABASE_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
 DIRECT_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
-JWT_SECRET="replace-with-qorvex-secret"
+JWT_SECRET="replace-with-corestack-secret"
 JWT_EXPIRES_IN="8h"
 CORS_ORIGIN="http://localhost:3000,https://YOUR_FRONTEND_VERCEL_URL"
 NODE_ENV="production"
@@ -70,7 +70,7 @@ SUPABASE_JWKS_URL="https://ofiajrknxhtquctgrysr.supabase.co/auth/v1/.well-known/
 
 Reglas:
 
-- `JWT_SECRET` debe ser propio de Qorvex, no el JWT secret de Supabase.
+- `JWT_SECRET` debe ser propio de CoreStack, no el JWT secret de Supabase.
 - `SUPABASE_SECRET_KEY` nunca debe estar en frontend ni empezar con `NEXT_PUBLIC_`.
 - No usar `*` en `CORS_ORIGIN` en produccion.
 
@@ -133,7 +133,7 @@ No ejecutes seed contra Supabase real/produccion salvo que sea una base staging/
 
 ## 7. Seed
 
-El seed de desarrollo borra tablas y recrea datos demo de Qorvex/Ferreteria RIVNU. Ahora esta protegido:
+El seed de desarrollo borra tablas y recrea datos demo de CoreStack/Ferreteria RIVNU. Ahora esta protegido:
 
 ```text
 NODE_ENV=production
@@ -163,8 +163,8 @@ corepack pnpm dev
 Variables locales Docker:
 
 ```env
-DATABASE_URL="postgresql://qorvex:qorvex@localhost:5432/qorvex?schema=public"
-DIRECT_URL="postgresql://qorvex:qorvex@localhost:5432/qorvex?schema=public"
+DATABASE_URL="postgresql://corestack:corestack@localhost:5432/corestack?schema=public"
+DIRECT_URL="postgresql://corestack:corestack@localhost:5432/corestack?schema=public"
 NEXT_PUBLIC_API_URL="http://localhost:4000"
 CORS_ORIGIN="http://localhost:3000"
 NODE_ENV="development"
@@ -183,7 +183,7 @@ NODE_ENV="development"
 ### Proyecto web
 
 ```text
-Name: qorvex-web
+Name: corestack-web
 Root Directory: apps/web
 Framework: Next.js
 Install Command: cd ../.. && corepack pnpm install --frozen-lockfile
@@ -200,7 +200,7 @@ NODE_ENV=production
 ### Proyecto API
 
 ```text
-Name: qorvex-api
+Name: corestack-api
 Root Directory: apps/api
 Runtime: Node.js / Vercel Functions
 Install Command: cd ../.. && corepack enable && corepack pnpm install --frozen-lockfile

@@ -179,6 +179,7 @@ export type Invoice = {
     barcode: string | null;
     quantity: string;
     unitPrice: string;
+    discountTotal: string;
     taxRate: string;
     taxTotal: string;
     subtotal: string;
@@ -213,6 +214,92 @@ export type PosSalePayload = {
   }>;
 };
 
+export type ReturnInvoiceLookup = Omit<Invoice, 'items'> & {
+  salesOrder?: {
+    id: string;
+    orderNumber: string;
+    status: string;
+  } | null;
+  items: Array<Invoice['items'][number] & {
+    productId: string | null;
+    returnedQuantity: string;
+    remainingQuantity: string;
+    canReturn: boolean;
+    product: Product | null;
+  }>;
+};
+
+export type ReturnRequest = {
+  id: string;
+  tenantId: string;
+  invoiceId: string;
+  requestedById: string;
+  approvedById: string | null;
+  rejectedById: string | null;
+  cashSessionId: string | null;
+  status: string;
+  reason: string;
+  adminNote: string | null;
+  refundMethod: string | null;
+  refundAmount: string;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  requestedBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  approvedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  rejectedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  cashSession?: CashSession | null;
+  invoice: Omit<ReturnInvoiceLookup, 'items'> & {
+    items: Array<Invoice['items'][number] & {
+      productId: string | null;
+      product: Product | null;
+    }>;
+  };
+  items: Array<{
+    id: string;
+    returnRequestId: string;
+    invoiceItemId: string;
+    productId: string | null;
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    discountTotal: string;
+    taxRate: string;
+    taxTotal: string;
+    subtotal: string;
+    total: string;
+    restock: boolean;
+    product: Product | null;
+  }>;
+};
+
+export type CreateReturnRequestPayload = {
+  invoiceId: string;
+  reason: string;
+  refundMethod?: string;
+  items: Array<{
+    invoiceItemId: string;
+    quantity: number;
+    restock?: boolean;
+  }>;
+};
+
+export type SalesOrderPriceLevel = 'REGULAR' | 'DISCOUNT_10' | 'PREFERRED_18';
+
 export type SalesOrder = {
   id: string;
   tenantId: string;
@@ -223,8 +310,11 @@ export type SalesOrder = {
   quotationDocumentNumber: string | null;
   orderNumber: string;
   status: string;
+  priceLevel: SalesOrderPriceLevel;
+  discountRate: string;
   subtotal: string;
   taxTotal: string;
+  discountTotal: string;
   total: string;
   notes: string | null;
   createdById: string;
@@ -280,6 +370,7 @@ export type SalesOrder = {
     quantity: string;
     reservedQuantity: number;
     unitPrice: string;
+    discountTotal: string;
     taxRate: string;
     taxTotal: string;
     subtotal: string;
@@ -292,6 +383,7 @@ export type CreateSalesOrderPayload = {
   destination: 'CASH_SALE' | 'QUOTATION';
   clientName?: string;
   customerId?: string;
+  priceLevel?: SalesOrderPriceLevel;
   quotationDocumentType?: 'RNC' | 'CEDULA';
   quotationDocumentNumber?: string;
   notes?: string;
@@ -471,7 +563,7 @@ export type ProductImageUploadResult = {
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
 if (!apiUrl) {
-  throw new Error('NEXT_PUBLIC_API_URL is required to connect the frontend with the Qorvex API.');
+  throw new Error('NEXT_PUBLIC_API_URL is required to connect the frontend with the CoreStack API.');
 }
 
 const apiMessageTranslations: Record<string, string> = {
@@ -512,6 +604,8 @@ const apiMessageTranslations: Record<string, string> = {
     'Uno o mas productos de la factura no pertenecen a esta empresa.',
   'Tracked inventory products require integer quantities.':
     'Los productos con inventario requieren cantidades enteras.',
+  'Tracked inventory products require whole quantities.':
+    'Este producto requiere cantidades completas.',
   'Invoice not found for tenant.': 'Factura no encontrada en esta empresa.',
   'Sale must include at least one item.': 'La venta debe incluir al menos un producto.',
   'Fiscal credit invoices require an RNC customer.':
@@ -588,6 +682,8 @@ const apiMessageTranslations: Record<string, string> = {
   'Product image cannot be larger than 5 MB.': 'La imagen no puede pesar mas de 5 MB.',
   'Product image storage is not configured.': 'El almacenamiento de imagenes no esta configurado.',
   'Product image could not be uploaded.': 'No se pudo subir la imagen del producto.',
+  'Product unit requires whole inventory quantities.':
+    'Esta unidad requiere cantidades completas en inventario.',
   'Import file is required.': 'Debes seleccionar un archivo de importacion.',
   'Import file cannot be larger than 10 MB.':
     'El archivo de importacion no puede pesar mas de 10 MB.',
@@ -599,6 +695,38 @@ const apiMessageTranslations: Record<string, string> = {
     'Las ventas directas estan deshabilitadas. Carga una orden para cobrar.',
   'Admins cannot claim sales orders for charging.':
     'El administrador no puede tomar ordenes para cobrar en caja.',
+  'Invoice number is required for return lookup.':
+    'Debes escribir el numero de factura u orden para buscar la devolucion.',
+  'Invoice not found for return lookup.':
+    'No se encontro una factura con ese numero.',
+  'Invoice status does not allow returns.':
+    'El estado de esta factura no permite devoluciones.',
+  'Return reason is required.': 'Debes indicar el motivo de la devolucion.',
+  'Return request must include at least one item.':
+    'La solicitud debe incluir al menos un producto.',
+  'Return quantities must be greater than zero.':
+    'Las cantidades a devolver deben ser mayores que cero.',
+  'Return item does not belong to the selected invoice.':
+    'Uno de los productos no pertenece a la factura seleccionada.',
+  'Return quantity exceeds invoice remaining quantity.':
+    'La cantidad a devolver supera lo disponible en la factura.',
+  'Return request not found for tenant.':
+    'Solicitud de devolucion no encontrada en esta empresa.',
+  'Only requested returns can be approved.':
+    'Solo se pueden aprobar devoluciones solicitadas.',
+  'Only requested returns can be rejected.':
+    'Solo se pueden rechazar devoluciones solicitadas.',
+  'Return rejection reason is required.':
+    'Debes indicar el motivo del rechazo.',
+  'Employee does not have permission to request returns.':
+    'Tu usuario no tiene permiso para solicitar devoluciones.',
+  'Only admins can approve or reject returns.':
+    'Solo administradores pueden aprobar o rechazar devoluciones.',
+  'An open cash session is required to approve a return.':
+    'Debe haber una caja abierta para aprobar una devolucion.',
+  'Select an open cash session for this refund.':
+    'Selecciona la caja abierta que entregara el reembolso.',
+  'Invalid return request status.': 'Estado de devolucion invalido.',
   'Quotation requires document type and document number.':
     'La cotizacion requiere tipo y numero de documento.',
   'Quotation document type must be RNC or CEDULA.':
@@ -691,6 +819,18 @@ function translateApiMessage(message: string) {
   if (message.startsWith('Insufficient available stock for ') && message.endsWith('.')) {
     const productName = message.replace('Insufficient available stock for ', '').replace(/\.$/, '');
     return `Stock disponible insuficiente para ${productName}.`;
+  }
+
+  if (message.startsWith('Tracked product ') && message.endsWith(' requires whole quantities.')) {
+    const productName = message
+      .replace('Tracked product ', '')
+      .replace(' requires whole quantities.', '');
+    return `${productName} requiere cantidades completas.`;
+  }
+
+  if (message.startsWith('Product unit ') && message.includes(' requires whole quantities for ')) {
+    const field = message.split(' requires whole quantities for ')[1]?.replace(/\.$/, '');
+    return `La unidad seleccionada requiere cantidades completas${field ? ` en ${field}` : ''}.`;
   }
 
   return message;
@@ -948,6 +1088,57 @@ export function getInventoryMovements(tenantId: string, accessToken: string) {
 export function getInvoices(tenantId: string, accessToken: string) {
   return fetchJson<Invoice[]>('/invoices', {
     headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getReturnRequests(tenantId: string, accessToken: string, status?: string) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return fetchJson<ReturnRequest[]>(`/returns${query}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function lookupReturnInvoice(tenantId: string, accessToken: string, q: string) {
+  return fetchJson<ReturnInvoiceLookup>(`/returns/invoice-lookup?q=${encodeURIComponent(q)}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createReturnRequest(
+  tenantId: string,
+  accessToken: string,
+  payload: CreateReturnRequestPayload,
+) {
+  return fetchJson<ReturnRequest>('/returns', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function approveReturnRequest(
+  tenantId: string,
+  accessToken: string,
+  returnRequestId: string,
+  payload: { cashSessionId?: string; refundMethod?: string; adminNote?: string },
+) {
+  return fetchJson<ReturnRequest>(`/returns/${returnRequestId}/approve`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectReturnRequest(
+  tenantId: string,
+  accessToken: string,
+  returnRequestId: string,
+  payload: { adminNote: string },
+) {
+  return fetchJson<ReturnRequest>(`/returns/${returnRequestId}/reject`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
   });
 }
 
