@@ -1,19 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import {
+  CashMovementType,
   CashSessionStatus,
   CustomerStatus,
   EmployeeStatus,
   FiscalSequenceStatus,
   InvoiceStatus,
+  PaymentMethod,
   ProductStatus,
+  ReturnRequestStatus,
+  SalesOrderDestination,
+  SalesOrderStatus,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 
-const billedStatuses = [
+const revenueStatuses = [
   InvoiceStatus.ISSUED,
   InvoiceStatus.PAID,
+  InvoiceStatus.PARTIALLY_PAID,
   InvoiceStatus.PENDING_ECF,
   InvoiceStatus.ACCEPTED,
+  InvoiceStatus.CREDITED,
+];
+const pendingInvoiceStatuses = [
+  InvoiceStatus.ISSUED,
+  InvoiceStatus.PARTIALLY_PAID,
+  InvoiceStatus.PENDING_ECF,
 ];
 
 @Injectable()
@@ -30,8 +42,11 @@ export class DashboardService {
     const seriesStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
     const [
-      totalBilledMonth,
-      totalBilledToday,
+      invoicesForMonth,
+      invoicesForToday,
+      returnsMonth,
+      returnsToday,
+      pendingReturnsAggregate,
       pendingInvoices,
       paidInvoices,
       draftInvoices,
@@ -40,44 +55,87 @@ export class DashboardService {
       activeProducts,
       activeEmployees,
       openCashSessions,
+      openCashSessionDetails,
+      pendingOrders,
+      claimedOrders,
+      pendingQuotations,
+      completedOrdersToday,
+      completedReturns,
+      pendingReturns,
       recentInvoices,
+      recentReturns,
       recentCashMovements,
       recentEmployeeLogs,
       fiscalSequences,
       productsForStock,
       invoicesForSeries,
+      returnsForSeries,
     ] = await Promise.all([
-      this.prisma.invoice.aggregate({
+      this.prisma.invoice.findMany({
         where: {
           tenantId,
-          status: { in: billedStatuses },
+          status: { in: revenueStatuses },
           issuedAt: {
             gte: monthStart,
             lt: nextMonthStart,
           },
         },
-        _sum: { total: true },
+        select: {
+          paidAmount: true,
+          total: true,
+        },
       }),
-      this.prisma.invoice.aggregate({
+      this.prisma.invoice.findMany({
         where: {
           tenantId,
-          status: { in: billedStatuses },
+          status: { in: revenueStatuses },
           issuedAt: {
             gte: todayStart,
           },
         },
-        _sum: { total: true },
+        select: {
+          paidAmount: true,
+          total: true,
+        },
+      }),
+      this.prisma.returnRequest.aggregate({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.COMPLETED,
+          completedAt: {
+            gte: monthStart,
+            lt: nextMonthStart,
+          },
+        },
+        _sum: { refundAmount: true },
+      }),
+      this.prisma.returnRequest.aggregate({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.COMPLETED,
+          completedAt: {
+            gte: todayStart,
+          },
+        },
+        _sum: { refundAmount: true },
+      }),
+      this.prisma.returnRequest.aggregate({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.REQUESTED,
+        },
+        _sum: { refundAmount: true },
       }),
       this.prisma.invoice.count({
         where: {
           tenantId,
-          status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PENDING_ECF] },
+          status: { in: pendingInvoiceStatuses },
         },
       }),
       this.prisma.invoice.count({
         where: {
           tenantId,
-          status: InvoiceStatus.PAID,
+          status: { in: [InvoiceStatus.PAID, InvoiceStatus.ACCEPTED] },
         },
       }),
       this.prisma.invoice.count({
@@ -116,6 +174,66 @@ export class DashboardService {
           status: CashSessionStatus.OPEN,
         },
       }),
+      this.prisma.cashSession.findMany({
+        where: {
+          tenantId,
+          status: CashSessionStatus.OPEN,
+        },
+        include: {
+          cashRegister: true,
+          openedBy: { select: { id: true, name: true, email: true } },
+          movements: {
+            select: {
+              type: true,
+              amount: true,
+              method: true,
+            },
+          },
+        },
+        orderBy: { openedAt: 'desc' },
+      }),
+      this.prisma.salesOrder.count({
+        where: {
+          tenantId,
+          destination: SalesOrderDestination.CASH_SALE,
+          status: SalesOrderStatus.SENT_TO_CASHIER,
+        },
+      }),
+      this.prisma.salesOrder.count({
+        where: {
+          tenantId,
+          destination: SalesOrderDestination.CASH_SALE,
+          status: SalesOrderStatus.IN_CASHIER,
+        },
+      }),
+      this.prisma.salesOrder.count({
+        where: {
+          tenantId,
+          destination: SalesOrderDestination.QUOTATION,
+          status: SalesOrderStatus.QUOTATION,
+        },
+      }),
+      this.prisma.salesOrder.count({
+        where: {
+          tenantId,
+          status: SalesOrderStatus.COMPLETED,
+          completedAt: {
+            gte: todayStart,
+          },
+        },
+      }),
+      this.prisma.returnRequest.count({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.COMPLETED,
+        },
+      }),
+      this.prisma.returnRequest.count({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.REQUESTED,
+        },
+      }),
       this.prisma.invoice.findMany({
         where: { tenantId },
         include: {
@@ -124,6 +242,17 @@ export class DashboardService {
         },
         orderBy: { createdAt: 'desc' },
         take: 5,
+      }),
+      this.prisma.returnRequest.findMany({
+        where: { tenantId },
+        include: {
+          invoice: { select: { id: true, invoiceNumber: true, total: true } },
+          requestedBy: { select: { id: true, name: true, email: true } },
+          approvedBy: { select: { id: true, name: true, email: true } },
+          rejectedBy: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
       }),
       this.prisma.cashMovement.findMany({
         where: { tenantId },
@@ -172,25 +301,54 @@ export class DashboardService {
       this.prisma.invoice.findMany({
         where: {
           tenantId,
-          status: { in: billedStatuses },
+          status: { in: revenueStatuses },
           issuedAt: {
             gte: seriesStart,
           },
         },
         select: {
           issuedAt: true,
+          paidAmount: true,
           total: true,
+        },
+      }),
+      this.prisma.returnRequest.findMany({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.COMPLETED,
+          completedAt: {
+            gte: seriesStart,
+          },
+        },
+        select: {
+          completedAt: true,
+          refundAmount: true,
         },
       }),
     ]);
 
-    const recentInventoryAlerts = productsForStock
-      .filter((product) => product.stock - product.reservedStock <= product.minStock)
-      .slice(0, 5);
+    const lowStockProductsList = productsForStock.filter(
+      (product) => product.stock - product.reservedStock <= product.minStock,
+    );
+    const recentInventoryAlerts = lowStockProductsList.slice(0, 5);
+    const grossSalesMonth = this.sumInvoicePaidAmount(invoicesForMonth);
+    const grossSalesToday = this.sumInvoicePaidAmount(invoicesForToday);
+    const refundsMonth = this.decimalToNumber(returnsMonth._sum.refundAmount);
+    const refundsToday = this.decimalToNumber(returnsToday._sum.refundAmount);
+    const netSalesMonth = grossSalesMonth - refundsMonth;
+    const netSalesToday = grossSalesToday - refundsToday;
+    const pendingReturnAmount = this.decimalToNumber(pendingReturnsAggregate._sum.refundAmount);
 
     return {
-      totalBilledMonth: this.decimalToNumber(totalBilledMonth._sum.total),
-      totalBilledToday: this.decimalToNumber(totalBilledToday._sum.total),
+      totalBilledMonth: netSalesMonth,
+      totalBilledToday: netSalesToday,
+      grossSalesMonth,
+      grossSalesToday,
+      refundsMonth,
+      refundsToday,
+      netSalesMonth,
+      netSalesToday,
+      pendingReturnAmount,
       pendingInvoices,
       paidInvoices,
       draftInvoices,
@@ -199,7 +357,22 @@ export class DashboardService {
       activeProducts,
       activeEmployees,
       openCashSessions,
-      lowStockProducts: recentInventoryAlerts.length,
+      pendingOrders,
+      claimedOrders,
+      ordersInCashier: pendingOrders + claimedOrders,
+      pendingQuotations,
+      completedOrdersToday,
+      pendingReturns,
+      completedReturns,
+      lowStockProducts: lowStockProductsList.length,
+      openCashSessionDetails: openCashSessionDetails.map((session) => ({
+        id: session.id,
+        registerName: session.cashRegister.name,
+        openedByName: session.openedBy.name,
+        openingAmount: this.decimalToNumber(session.openingAmount),
+        expectedCashAmount: this.calculateExpectedCashAmount(session),
+        openedAt: session.openedAt,
+      })),
       recentInvoices: recentInvoices.map((invoice) => ({
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
@@ -209,6 +382,18 @@ export class DashboardService {
         cashierName: invoice.issuedBy?.name ?? null,
         issuedAt: invoice.issuedAt,
         createdAt: invoice.createdAt,
+      })),
+      recentReturns: recentReturns.map((returnRequest) => ({
+        id: returnRequest.id,
+        status: returnRequest.status,
+        reason: returnRequest.reason,
+        refundAmount: this.decimalToNumber(returnRequest.refundAmount),
+        invoiceId: returnRequest.invoice.id,
+        invoiceNumber: returnRequest.invoice.invoiceNumber,
+        requestedByName: returnRequest.requestedBy.name,
+        resolvedByName: returnRequest.approvedBy?.name ?? returnRequest.rejectedBy?.name ?? null,
+        createdAt: returnRequest.createdAt,
+        completedAt: returnRequest.completedAt,
       })),
       recentCashMovements: recentCashMovements.map((movement) => ({
         id: movement.id,
@@ -248,12 +433,20 @@ export class DashboardService {
         openCashSessions,
       },
       recentInventoryAlerts,
-      salesSeries: this.buildSalesSeries(invoicesForSeries, now),
+      salesSeries: this.buildSalesSeries(invoicesForSeries, returnsForSeries, now),
     };
   }
 
   private buildSalesSeries(
-    invoices: Array<{ issuedAt: Date | null; total: { toNumber(): number } }>,
+    invoices: Array<{
+      issuedAt: Date | null;
+      paidAmount: { toNumber(): number };
+      total: { toNumber(): number };
+    }>,
+    returns: Array<{
+      completedAt: Date | null;
+      refundAmount: { toNumber(): number };
+    }>,
     now: Date,
   ) {
     const buckets = new Map<string, number>();
@@ -269,7 +462,16 @@ export class DashboardService {
       }
 
       const key = this.monthKey(invoice.issuedAt);
-      buckets.set(key, (buckets.get(key) ?? 0) + this.decimalToNumber(invoice.total));
+      buckets.set(key, (buckets.get(key) ?? 0) + this.getInvoicePaidAmount(invoice));
+    }
+
+    for (const returnRequest of returns) {
+      if (!returnRequest.completedAt) {
+        continue;
+      }
+
+      const key = this.monthKey(returnRequest.completedAt);
+      buckets.set(key, (buckets.get(key) ?? 0) - this.decimalToNumber(returnRequest.refundAmount));
     }
 
     return Array.from(buckets.entries()).map(([month, total]) => ({
@@ -286,5 +488,43 @@ export class DashboardService {
 
   private decimalToNumber(value: { toNumber(): number } | null | undefined) {
     return value ? value.toNumber() : 0;
+  }
+
+  private sumInvoicePaidAmount(
+    invoices: Array<{ paidAmount: { toNumber(): number }; total: { toNumber(): number } }>,
+  ) {
+    return invoices.reduce((sum, invoice) => sum + this.getInvoicePaidAmount(invoice), 0);
+  }
+
+  private getInvoicePaidAmount(invoice: {
+    paidAmount: { toNumber(): number };
+    total: { toNumber(): number };
+  }) {
+    const paidAmount = this.decimalToNumber(invoice.paidAmount);
+    return paidAmount > 0 ? paidAmount : 0;
+  }
+
+  private calculateExpectedCashAmount(session: {
+    openingAmount: { toNumber(): number };
+    movements: Array<{
+      type: CashMovementType;
+      amount: { toNumber(): number };
+      method: PaymentMethod | null;
+    }>;
+  }) {
+    const negativeMovementTypes: CashMovementType[] = [CashMovementType.CASH_OUT, CashMovementType.REFUND];
+
+    return session.movements.reduce((sum, movement) => {
+      if (movement.type === CashMovementType.CLOSING) {
+        return sum;
+      }
+
+      if (movement.method && movement.method !== PaymentMethod.CASH) {
+        return sum;
+      }
+
+      const amount = this.decimalToNumber(movement.amount);
+      return negativeMovementTypes.includes(movement.type) ? sum - amount : sum + amount;
+    }, this.decimalToNumber(session.openingAmount));
   }
 }

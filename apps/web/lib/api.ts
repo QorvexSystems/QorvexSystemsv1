@@ -7,6 +7,13 @@ export type Tenant = {
 export type DashboardSummary = {
   totalBilledMonth: number;
   totalBilledToday: number;
+  grossSalesMonth: number;
+  grossSalesToday: number;
+  refundsMonth: number;
+  refundsToday: number;
+  netSalesMonth: number;
+  netSalesToday: number;
+  pendingReturnAmount: number;
   pendingInvoices: number;
   paidInvoices: number;
   draftInvoices: number;
@@ -15,7 +22,22 @@ export type DashboardSummary = {
   activeProducts: number;
   activeEmployees: number;
   openCashSessions: number;
+  pendingOrders: number;
+  claimedOrders: number;
+  ordersInCashier: number;
+  pendingQuotations: number;
+  completedOrdersToday: number;
+  pendingReturns: number;
+  completedReturns: number;
   lowStockProducts: number;
+  openCashSessionDetails: Array<{
+    id: string;
+    registerName: string;
+    openedByName: string;
+    openingAmount: number;
+    expectedCashAmount: number;
+    openedAt: string;
+  }>;
   recentInvoices: Array<{
     id: string;
     invoiceNumber: string;
@@ -25,6 +47,18 @@ export type DashboardSummary = {
     cashierName: string | null;
     issuedAt: string | null;
     createdAt: string;
+  }>;
+  recentReturns: Array<{
+    id: string;
+    status: string;
+    reason: string;
+    refundAmount: number;
+    invoiceId: string;
+    invoiceNumber: string;
+    requestedByName: string;
+    resolvedByName: string | null;
+    createdAt: string;
+    completedAt: string | null;
   }>;
   recentInventoryAlerts: Array<{
     id: string;
