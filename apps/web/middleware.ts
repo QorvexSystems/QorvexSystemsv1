@@ -11,6 +11,8 @@ const protectedPrefixes = [
   '/invoices',
   '/inventory',
   '/customers',
+  '/quotations',
+  '/returns',
   '/settings',
 ];
 
