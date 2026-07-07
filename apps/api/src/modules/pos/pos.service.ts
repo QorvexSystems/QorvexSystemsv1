@@ -22,6 +22,7 @@ import {
   Prisma,
   Product,
   ProductStatus,
+  ProductUnit,
   Role,
   SalesOrderDestination,
   SalesOrderStatus,
@@ -43,6 +44,7 @@ type ComputedSaleLine = {
   quantity: Prisma.Decimal;
   reservedQuantity: number;
   unitPrice: Prisma.Decimal;
+  discountTotal: Prisma.Decimal;
   taxRate: Prisma.Decimal;
   taxTotal: Prisma.Decimal;
   subtotal: Prisma.Decimal;
@@ -112,6 +114,7 @@ export class PosService {
       documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
       paymentMethod: dto.paymentMethod,
       subtotal: computed.subtotal.toNumber(),
+      discountTotal: computed.discountTotal.toNumber(),
       taxTotal: computed.taxTotal.toNumber(),
       total: computed.total.toNumber(),
       items: computed.items.map((item) => ({
@@ -121,6 +124,7 @@ export class PosService {
         barcode: item.product.barcode,
         quantity: item.quantity.toNumber(),
         unitPrice: item.unitPrice.toNumber(),
+        discountTotal: item.discountTotal.toNumber(),
         subtotal: item.subtotal.toNumber(),
         taxTotal: item.taxTotal.toNumber(),
         total: item.total.toNumber(),
@@ -204,7 +208,7 @@ export class PosService {
           fiscalStatus: InvoiceFiscalStatus.SIGNED,
           subtotal: computed.subtotal,
           taxTotal: computed.taxTotal,
-          discountTotal: new Prisma.Decimal(0),
+          discountTotal: computed.discountTotal,
           total: computed.total,
           paidAmount,
           amountReceived: payment.amountReceived,
@@ -223,7 +227,7 @@ export class PosService {
               description: item.description,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
-              discountTotal: new Prisma.Decimal(0),
+              discountTotal: item.discountTotal,
               taxRate: item.taxRate,
               taxTotal: item.taxTotal,
               subtotal: item.subtotal,
@@ -505,6 +509,7 @@ export class PosService {
       const quantity = new Prisma.Decimal(quantitiesByProduct.get(product.id) ?? 0);
       const unitPrice = product.salePrice.gt(0) ? product.salePrice : product.price;
       const subtotal = quantity.mul(unitPrice).toDecimalPlaces(2);
+      const discountTotal = new Prisma.Decimal(0);
       const taxTotal = subtotal.mul(product.taxRate).toDecimalPlaces(2);
 
       return {
@@ -516,6 +521,7 @@ export class PosService {
         quantity,
         reservedQuantity: 0,
         unitPrice,
+        discountTotal,
         taxRate: product.taxRate,
         subtotal,
         taxTotal,
@@ -527,9 +533,13 @@ export class PosService {
       const quantity = item.quantity.toNumber();
       const availableStock = item.product.stock - item.product.reservedStock;
 
-      if (item.product.trackInventory && !Number.isInteger(quantity)) {
+      if (
+        item.product.trackInventory &&
+        requiresWholeQuantity(item.product.unit) &&
+        !Number.isInteger(quantity)
+      ) {
         throw new BadRequestException(
-          `Tracked product ${item.product.name} requires integer quantities.`,
+          `Tracked product ${item.product.name} requires whole quantities.`,
         );
       }
 
@@ -542,6 +552,9 @@ export class PosService {
       items: computedItems,
       subtotal: computedItems
         .reduce((sum, item) => sum.add(item.subtotal), new Prisma.Decimal(0))
+        .toDecimalPlaces(2),
+      discountTotal: computedItems
+        .reduce((sum, item) => sum.add(item.discountTotal), new Prisma.Decimal(0))
         .toDecimalPlaces(2),
       taxTotal: computedItems
         .reduce((sum, item) => sum.add(item.taxTotal), new Prisma.Decimal(0))
@@ -561,6 +574,7 @@ export class PosService {
       quantity: Prisma.Decimal;
       reservedQuantity: number;
       unitPrice: Prisma.Decimal;
+      discountTotal: Prisma.Decimal;
       taxRate: Prisma.Decimal;
       taxTotal: Prisma.Decimal;
       subtotal: Prisma.Decimal;
@@ -582,6 +596,7 @@ export class PosService {
         quantity: item.quantity,
         reservedQuantity: item.reservedQuantity,
         unitPrice: item.unitPrice,
+        discountTotal: item.discountTotal,
         taxRate: item.taxRate,
         taxTotal: item.taxTotal,
         subtotal: item.subtotal,
@@ -592,9 +607,13 @@ export class PosService {
     for (const item of computedItems) {
       const quantity = item.quantity.toNumber();
 
-      if (item.product.trackInventory && !Number.isInteger(quantity)) {
+      if (
+        item.product.trackInventory &&
+        requiresWholeQuantity(item.product.unit) &&
+        !Number.isInteger(quantity)
+      ) {
         throw new BadRequestException(
-          `Tracked product ${item.description} requires integer quantities.`,
+          `Tracked product ${item.description} requires whole quantities.`,
         );
       }
 
@@ -607,6 +626,9 @@ export class PosService {
       items: computedItems,
       subtotal: computedItems
         .reduce((sum, item) => sum.add(item.subtotal), new Prisma.Decimal(0))
+        .toDecimalPlaces(2),
+      discountTotal: computedItems
+        .reduce((sum, item) => sum.add(item.discountTotal), new Prisma.Decimal(0))
         .toDecimalPlaces(2),
       taxTotal: computedItems
         .reduce((sum, item) => sum.add(item.taxTotal), new Prisma.Decimal(0))
@@ -635,9 +657,9 @@ export class PosService {
     }
 
     const quantity = item.quantity.toNumber();
-    if (!Number.isInteger(quantity)) {
+    if (requiresWholeQuantity(item.product.unit) && !Number.isInteger(quantity)) {
       throw new BadRequestException(
-        `Tracked product ${item.description} requires integer quantities.`,
+        `Tracked product ${item.description} requires whole quantities.`,
       );
     }
 
@@ -854,4 +876,14 @@ export class PosService {
 
     return InvoiceStatus.ISSUED;
   }
+}
+
+function requiresWholeQuantity(unit: ProductUnit) {
+  const fractionalUnits: ProductUnit[] = [
+    ProductUnit.METER,
+    ProductUnit.FOOT,
+    ProductUnit.YARD,
+    ProductUnit.POUND,
+  ];
+  return !fractionalUnits.includes(unit);
 }

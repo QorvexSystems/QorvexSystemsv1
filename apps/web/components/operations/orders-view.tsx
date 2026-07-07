@@ -22,6 +22,7 @@ import {
   updateSalesOrder,
   type Product,
   type SalesOrder,
+  type SalesOrderPriceLevel,
 } from '@/lib/api';
 import { canTakeOrders, isAdminSession } from '@/lib/authorization';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
@@ -31,13 +32,21 @@ import {
   validateDominicanRnc,
 } from '@/lib/dominican-documents';
 import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { CancelReasonModal } from './cancel-reason-modal';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
 import { PosCart } from './pos/pos-cart';
 import { PosProductGrid } from './pos/pos-product-grid';
-import { canAddProduct, getAvailableStock, getProductPrice, uniqueValues } from './pos/pos-utils';
+import {
+  canAddProduct,
+  getAvailableStock,
+  getDefaultQuantity,
+  getProductPrice,
+  getQuantityStep,
+  roundQuantity,
+  uniqueValues,
+} from './pos/pos-utils';
 import { playScanFeedback } from './pos/scan-feedback';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -51,6 +60,85 @@ type WindowWithBarcodeDetector = Window &
   typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
 
 type OrderDestination = 'CASH_SALE' | 'QUOTATION';
+const finalDiscountCustomerId = '__FINAL_DISCOUNT_10__';
+const finalPreferredCustomerId = '__FINAL_PREFERRED_18__';
+
+const specialCustomerLabels = [
+  'Consumidor final (descuento 10%)',
+  'Consumidor final (cliente preferencial 18%)',
+];
+
+function getPriceLevelDiscountRate(priceLevel: SalesOrderPriceLevel) {
+  if (priceLevel === 'DISCOUNT_10') {
+    return 0.1;
+  }
+
+  if (priceLevel === 'PREFERRED_18') {
+    return 0.18;
+  }
+
+  return 0;
+}
+
+function getSpecialCustomerPriceLevel(
+  customerValue: string,
+): Exclude<SalesOrderPriceLevel, 'REGULAR'> | null {
+  if (customerValue === finalDiscountCustomerId) {
+    return 'DISCOUNT_10';
+  }
+
+  if (customerValue === finalPreferredCustomerId) {
+    return 'PREFERRED_18';
+  }
+
+  return null;
+}
+
+function getSpecialCustomerValue(priceLevel?: SalesOrderPriceLevel | null) {
+  if (priceLevel === 'DISCOUNT_10') {
+    return finalDiscountCustomerId;
+  }
+
+  if (priceLevel === 'PREFERRED_18') {
+    return finalPreferredCustomerId;
+  }
+
+  return '';
+}
+
+function getRegisteredCustomerId(customerValue: string) {
+  return getSpecialCustomerPriceLevel(customerValue) ? '' : customerValue;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function buildPricedCartItem(
+  product: Product,
+  quantity: number,
+  priceLevel: SalesOrderPriceLevel,
+  reservedQuantity = 0,
+): CartItem {
+  const regularUnitPrice = getProductPrice(product);
+  const discountRate = getPriceLevelDiscountRate(priceLevel);
+  const unitPrice = roundMoney(regularUnitPrice * (1 - discountRate));
+  const regularSubtotal = roundMoney(regularUnitPrice * quantity);
+  const subtotal = roundMoney(unitPrice * quantity);
+  const discountTotal = roundMoney(Math.max(regularSubtotal - subtotal, 0));
+  const taxTotal = roundMoney(subtotal * Number(product.taxRate));
+
+  return {
+    product,
+    quantity,
+    reservedQuantity,
+    unitPrice,
+    discountTotal,
+    subtotal,
+    taxTotal,
+    total: roundMoney(subtotal + taxTotal),
+  };
+}
 
 export function OrdersView() {
   const session = useCurrentSession();
@@ -70,6 +158,7 @@ export function OrdersView() {
   const [quotationDocumentType, setQuotationDocumentType] = useState<'RNC' | 'CEDULA'>('CEDULA');
   const [quotationDocumentNumber, setQuotationDocumentNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
+  const [priceLevel, setPriceLevel] = useState<SalesOrderPriceLevel>('REGULAR');
   const [notes, setNotes] = useState('');
   const [barcode, setBarcode] = useState('');
   const [scannerEnabled, setScannerEnabled] = useState(false);
@@ -81,6 +170,7 @@ export function OrdersView() {
   const [brandFilter, setBrandFilter] = useState('ALL');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [mobileSection, setMobileSection] = useState<'products' | 'order'>('products');
   const [loadedEditOrderId, setLoadedEditOrderId] = useState<string | null>(null);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
@@ -114,6 +204,14 @@ export function OrdersView() {
       barcodeInputRef.current?.focus();
     }
   }, [scannerEnabled]);
+
+  useEffect(() => {
+    setCart((current) =>
+      current.map((item) =>
+        buildPricedCartItem(item.product, item.quantity, priceLevel, item.reservedQuantity),
+      ),
+    );
+  }, [priceLevel]);
 
   useEffect(() => () => stopCameraScan(), []);
 
@@ -151,7 +249,8 @@ export function OrdersView() {
         // Cargar datos
         setDestination('QUOTATION');
         setClientName(order.clientName || '');
-        setCustomerId(order.customerId || '');
+        setCustomerId(order.customerId || getSpecialCustomerValue(order.priceLevel));
+        setPriceLevel(order.priceLevel ?? 'REGULAR');
         setNotes(order.notes || '');
         if (order.quotationDocumentType === 'RNC' || order.quotationDocumentType === 'CEDULA') {
           setQuotationDocumentType(order.quotationDocumentType);
@@ -160,15 +259,18 @@ export function OrdersView() {
 
         // Cargar productos en el carrito
         const cartItems = order.items.map((item) => ({
-          product: {
-            ...item.product!,
-            price: item.unitPrice,
-            taxRate: item.taxRate,
-          } as Product,
+          product: item.product! as Product,
           quantity: Number(item.quantity),
+          reservedQuantity: item.reservedQuantity,
+          unitPrice: Number(item.unitPrice),
+          discountTotal: Number(item.discountTotal ?? 0),
+          subtotal: Number(item.subtotal),
+          taxTotal: Number(item.taxTotal),
+          total: Number(item.total),
         }));
 
         setCart(cartItems);
+        setMobileSection('order');
         setLoadedEditOrderId(editOrderId);
         loadedEditOrderRef.current = null;
 
@@ -214,17 +316,24 @@ export function OrdersView() {
   );
   const totals = useMemo(() => {
     const subtotal = cart.reduce(
-      (sum, item) => sum + getProductPrice(item.product) * item.quantity,
+      (sum, item) => sum + (item.subtotal ?? getProductPrice(item.product) * item.quantity),
+      0,
+    );
+    const discount = cart.reduce(
+      (sum, item) => sum + (item.discountTotal ?? 0),
       0,
     );
     const tax = cart.reduce(
       (sum, item) =>
-        sum + getProductPrice(item.product) * item.quantity * Number(item.product.taxRate),
+        sum +
+        (item.taxTotal ??
+          getProductPrice(item.product) * item.quantity * Number(item.product.taxRate)),
       0,
     );
 
     return {
       subtotal,
+      discount,
       tax,
       total: subtotal + tax,
     };
@@ -290,7 +399,8 @@ export function OrdersView() {
       const payload = {
         destination,
         clientName: trimmedClientName,
-        customerId: customerId || undefined,
+        customerId: getRegisteredCustomerId(customerId) || undefined,
+        priceLevel,
         quotationDocumentType: destination === 'QUOTATION' ? quotationDocumentType : undefined,
         quotationDocumentNumber:
           destination === 'QUOTATION'
@@ -319,8 +429,10 @@ export function OrdersView() {
       setCart([]);
       setNotes('');
       setCustomerId('');
+      setPriceLevel('REGULAR');
       setClientName('');
       setQuotationDocumentNumber('');
+      setMobileSection('products');
       setLoadedEditOrderId(null);
       loadedEditOrderRef.current = editOrderId ? editOrderId : null;
       editToastShownRef.current = null;
@@ -391,11 +503,25 @@ export function OrdersView() {
 
       if (existing) {
         return current.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item,
+          item.product.id === product.id
+            ? (() => {
+                const nextQuantity = item.quantity + getQuantityStep(item.product);
+                const cappedQuantity = item.product.trackInventory
+                  ? Math.min(nextQuantity, getAvailableStock(item.product))
+                  : nextQuantity;
+
+                return buildPricedCartItem(
+                  item.product,
+                  roundQuantity(cappedQuantity),
+                  priceLevel,
+                  item.reservedQuantity,
+                );
+              })()
+            : item,
         );
       }
 
-      return [...current, { product, quantity: 1 }];
+      return [...current, buildPricedCartItem(product, getDefaultQuantity(product), priceLevel)];
     });
 
     return true;
@@ -409,15 +535,58 @@ export function OrdersView() {
             return item;
           }
 
-          const availableStock = getAvailableStock(item.product);
-          const nextQuantity = item.product.trackInventory
-            ? Math.min(quantity, availableStock)
-            : quantity;
+          if (quantity <= 0) {
+            return { ...item, quantity: 0 };
+          }
 
-          return { ...item, quantity: nextQuantity };
+          const availableStock = getAvailableStock(item.product);
+          const quantityStep = getQuantityStep(item.product);
+          const nextQuantity = item.product.trackInventory
+            ? Math.min(Math.max(quantity, quantityStep), availableStock)
+            : Math.max(quantity, quantityStep);
+
+          return buildPricedCartItem(
+            item.product,
+            roundQuantity(nextQuantity),
+            priceLevel,
+            item.reservedQuantity,
+          );
         })
         .filter((item) => item.quantity > 0),
     );
+  }
+
+  function handleCustomerSelection(nextCustomerId: string) {
+    const wasSpecialCustomer = Boolean(getSpecialCustomerPriceLevel(customerId));
+    const nextPriceLevel = getSpecialCustomerPriceLevel(nextCustomerId);
+    const previousCustomer = activeCustomers.find((customer) => customer.id === customerId);
+    const clientNameWasAutoFilled =
+      specialCustomerLabels.includes(clientName.trim()) ||
+      Boolean(previousCustomer && clientName.trim() === previousCustomer.name);
+
+    setCustomerId(nextCustomerId);
+
+    if (nextPriceLevel) {
+      setPriceLevel(nextPriceLevel);
+      if (clientNameWasAutoFilled) {
+        setClientName('');
+      }
+      return;
+    }
+
+    setPriceLevel('REGULAR');
+
+    if (!nextCustomerId) {
+      if (wasSpecialCustomer) {
+        setClientName('');
+      }
+      return;
+    }
+
+    const selectedCustomer = activeCustomers.find((customer) => customer.id === nextCustomerId);
+    if (selectedCustomer) {
+      setClientName(selectedCustomer.name);
+    }
   }
 
   function enableScanner() {
@@ -507,15 +676,55 @@ export function OrdersView() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className={cn('space-y-5', cart.length ? 'pb-24 xl:pb-0' : '')}>
       <ModuleHeader
         title="Toma de ordenes"
         description="Modo escaner para crear tickets pendientes. La factura se emite solamente cuando caja cobra."
       />
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(24rem,0.8fr)] xl:items-start">
-        <div className="space-y-4">
-          <Card className="border-zinc-200 bg-zinc-50">
+      <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-white p-1 shadow-sm xl:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileSection('products')}
+          className={cn(
+            'rounded-md px-3 py-2.5 text-sm font-semibold transition',
+            mobileSection === 'products'
+              ? 'bg-zinc-950 text-white shadow-sm'
+              : 'text-zinc-600 hover:bg-zinc-50',
+          )}
+        >
+          Productos
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileSection('order')}
+          className={cn(
+            'flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-semibold transition',
+            mobileSection === 'order'
+              ? 'bg-zinc-950 text-white shadow-sm'
+              : 'text-zinc-600 hover:bg-zinc-50',
+          )}
+        >
+          Orden
+          <span
+            className={cn(
+              'inline-flex min-w-6 justify-center rounded-full px-2 py-0.5 text-xs',
+              mobileSection === 'order' ? 'bg-white/15 text-white' : 'bg-zinc-100 text-zinc-700',
+            )}
+          >
+            {cart.length}
+          </span>
+        </button>
+      </div>
+
+      <section className="grid gap-4 xl:h-[calc(100vh-9rem)] xl:grid-cols-[minmax(0,1.2fr)_minmax(24rem,0.8fr)] xl:items-start xl:overflow-hidden">
+        <div
+          className={cn(
+            'space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:space-y-3',
+            mobileSection === 'products' ? 'block' : 'hidden xl:flex',
+          )}
+        >
+          <Card className="border-zinc-200 bg-zinc-50 xl:shrink-0">
             <CardHeader className="pb-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -584,15 +793,22 @@ export function OrdersView() {
             </CardContent>
           </Card>
 
-          <PosProductGrid
-            products={filteredProducts}
-            quantitiesByProduct={quantitiesByProduct}
-            isLoading={productsQuery.isLoading}
-            onAddProduct={addProduct}
-          />
+          <div className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2">
+            <PosProductGrid
+              products={filteredProducts}
+              quantitiesByProduct={quantitiesByProduct}
+              isLoading={productsQuery.isLoading}
+              onAddProduct={addProduct}
+            />
+          </div>
         </div>
 
-        <div className="space-y-3 xl:sticky xl:top-24">
+        <div
+          className={cn(
+            'space-y-3 xl:h-full xl:overflow-y-auto xl:pr-1',
+            mobileSection === 'order' ? 'block' : 'hidden xl:block',
+          )}
+        >
           <PosCart items={cart} onUpdateQuantity={updateQuantity} onClear={() => setCart([])} />
           <Card>
             <CardHeader>
@@ -623,8 +839,10 @@ export function OrdersView() {
                       setCart([]);
                       setNotes('');
                       setCustomerId('');
+                      setPriceLevel('REGULAR');
                       setClientName('');
                       setQuotationDocumentNumber('');
+                      setMobileSection('products');
                       setLoadedEditOrderId(null);
                       loadedEditOrderRef.current = editOrderId;
                       editToastShownRef.current = null;
@@ -722,16 +940,28 @@ export function OrdersView() {
                   <select
                     id="orderCustomer"
                     value={customerId}
-                    onChange={(event) => setCustomerId(event.target.value)}
+                    onChange={(event) => handleCustomerSelection(event.target.value)}
                     className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
                   >
                     <option value="">Consumidor final</option>
+                    <option value={finalDiscountCustomerId}>
+                      Consumidor Final (descuento 10%)
+                    </option>
+                    <option value={finalPreferredCustomerId}>
+                      Consumidor Final (Cliente preferencial 18%)
+                    </option>
                     {activeCustomers.map((customer) => (
                       <option key={customer.id} value={customer.id}>
                         {customer.name}
                       </option>
                     ))}
                   </select>
+                  {priceLevel !== 'REGULAR' ? (
+                    <p className="text-xs font-medium text-emerald-700">
+                      Se aplicara un descuento de {Math.round(getPriceLevelDiscountRate(priceLevel) * 100)}
+                      % a los productos de esta orden.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -751,6 +981,12 @@ export function OrdersView() {
                     <span>Subtotal</span>
                     <strong>{formatCurrency(totals.subtotal)}</strong>
                   </div>
+                  {totals.discount > 0 ? (
+                    <div className="mt-2 flex justify-between text-emerald-700">
+                      <span>Descuento</span>
+                      <strong>-{formatCurrency(totals.discount)}</strong>
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex justify-between">
                     <span>ITBIS</span>
                     <strong>{formatCurrency(totals.tax)}</strong>
@@ -850,6 +1086,34 @@ export function OrdersView() {
           setCancelReason('');
         }}
       />
+
+      {cart.length ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur xl:hidden">
+          <div className="mx-auto flex max-w-3xl items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-muted-foreground">
+                {cart.length} producto(s) en la orden
+              </p>
+              <p className="text-base font-extrabold text-zinc-950">{formatCurrency(totals.total)}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 px-3"
+              onClick={() => setMobileSection('products')}
+            >
+              Productos
+            </Button>
+            <Button
+              type="button"
+              className="h-11 bg-[#f36c10] px-4 text-white hover:bg-[#d85f0e]"
+              onClick={() => setMobileSection('order')}
+            >
+              Revisar
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

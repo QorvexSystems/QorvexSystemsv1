@@ -65,7 +65,7 @@ export default function LoginPage() {
       <section className="relative flex min-h-[32rem] overflow-hidden bg-black px-5 py-6 text-white sm:px-10 lg:min-h-screen">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -right-10 top-8 text-[5rem] font-semibold leading-none text-white/[0.035] sm:text-[10rem] lg:-right-16 lg:top-12 lg:text-[15rem]">
-            Qorvex
+            CoreStack
           </div>
           <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-zinc-950 to-transparent lg:h-40" />
         </div>
@@ -94,11 +94,11 @@ export default function LoginPage() {
               Acceso privado para POS, facturacion e inventario.
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-6 text-zinc-300">
-              Plataforma Qorvex configurada exclusivamente para la operacion diaria de RIVNU.
+              Plataforma CoreStack configurada exclusivamente para la operacion diaria de RIVNU.
             </p>
           </div>
 
-          <p className="text-center text-xs text-zinc-500 sm:text-left">Powered by Qorvex Systems</p>
+          <p className="text-center text-xs text-zinc-500 sm:text-left">Powered by CoreStack</p>
         </div>
       </section>
 
@@ -159,7 +159,7 @@ export default function LoginPage() {
 
             <div className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <span>Powered by</span>
-              <span className="font-semibold text-zinc-700">Qorvex</span>
+              <span className="font-semibold text-zinc-700">CoreStack</span>
             </div>
           </CardContent>
         </Card>

@@ -4,6 +4,7 @@ export type CartItem = {
   product: Product;
   quantity: number;
   unitPrice?: number;
+  discountTotal?: number;
   reservedQuantity?: number;
   subtotal?: number;
   taxTotal?: number;

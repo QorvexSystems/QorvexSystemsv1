@@ -11,6 +11,7 @@ import {
   InventoryMovementType,
   Prisma,
   ProductStatus,
+  ProductUnit,
 } from '@qorvex/database';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
@@ -121,6 +122,10 @@ export class ProductsService {
     const price = new Prisma.Decimal(dto.price);
     const cost = dto.cost === undefined ? undefined : new Prisma.Decimal(dto.cost);
     const barcodeWasGenerated = !dto.barcode?.trim();
+    const unit = dto.unit ?? ProductUnit.UNIT;
+
+    this.ensureQuantityMatchesUnit(unit, stock, 'stock');
+    this.ensureQuantityMatchesUnit(unit, dto.minStock ?? 0, 'stock minimo');
 
     const product = await this.prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
@@ -138,7 +143,7 @@ export class ProductsService {
           description: dto.description,
           imageUrl: dto.imageUrl,
           brand: dto.brand,
-          unit: dto.unit,
+          unit,
           price,
           salePrice: price,
           cost,
@@ -239,9 +244,15 @@ export class ProductsService {
       dto.price === undefined ? undefined : new Prisma.Decimal(dto.price).toDecimalPlaces(2);
     const nextCost =
       dto.cost === undefined ? undefined : new Prisma.Decimal(dto.cost).toDecimalPlaces(2);
+    const nextUnit = dto.unit ?? currentProduct.unit;
+    const nextStock = dto.stock ?? currentProduct.stock;
+    const nextMinStock = dto.minStock ?? currentProduct.minStock;
     const shouldTrackInventory = dto.trackInventory ?? currentProduct.trackInventory;
     const shouldCreateStockMovement =
       dto.stock !== undefined && dto.stock !== currentProduct.stock && shouldTrackInventory;
+
+    this.ensureQuantityMatchesUnit(nextUnit, nextStock, 'stock');
+    this.ensureQuantityMatchesUnit(nextUnit, nextMinStock, 'stock minimo');
 
     const product = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.product.update({
@@ -255,7 +266,7 @@ export class ProductsService {
           description: dto.description,
           imageUrl: dto.imageUrl,
           brand: dto.brand,
-          unit: dto.unit,
+          unit: nextUnit,
           price: nextPrice,
           salePrice: nextPrice,
           cost: nextCost,
@@ -436,7 +447,9 @@ export class ProductsService {
     }
 
     const supabaseUrl = this.config.get<string>('SUPABASE_URL')?.replace(/\/+$/, '');
-    const supabaseKey = this.config.get<string>('SUPABASE_SECRET_KEY');
+    const supabaseKey =
+      this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY') ??
+      this.config.get<string>('SUPABASE_SECRET_KEY');
     const bucket =
       this.config.get<string>('SUPABASE_PRODUCT_IMAGE_BUCKET') || defaultProductImageBucket;
 
@@ -677,6 +690,14 @@ export class ProductsService {
       throw new NotFoundException('Product category not found for tenant.');
     }
   }
+
+  private ensureQuantityMatchesUnit(unit: ProductUnit, quantity: number, field: string) {
+    if (requiresWholeQuantity(unit) && !Number.isInteger(quantity)) {
+      throw new BadRequestException(
+        `Product unit ${unit} requires whole quantities for ${field}.`,
+      );
+    }
+  }
 }
 
 function normalizeCodeSegment(value: string) {
@@ -757,8 +778,13 @@ async function ensurePublicStorageBucket(supabaseUrl: string, supabaseKey: strin
     apikey: supabaseKey,
   };
   const existing = await fetch(bucketUrl, { headers });
+  const existingBody = await existing.text();
+  const bucketMissing =
+    existing.status === 404 ||
+    (existing.status === 400 &&
+      /bucket not found|\"statusCode\"\\s*:\\s*\"?404\"?/i.test(existingBody));
 
-  if (existing.status === 404) {
+  if (bucketMissing) {
     const created = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
       method: 'POST',
       headers: {
@@ -773,6 +799,11 @@ async function ensurePublicStorageBucket(supabaseUrl: string, supabaseKey: strin
     });
 
     if (!created.ok && created.status !== 409) {
+      const createdBody = await created.text();
+      if (/already exists/i.test(createdBody)) {
+        return;
+      }
+
       throw new BadRequestException('Product image storage is not configured.');
     }
 
@@ -793,4 +824,14 @@ async function ensurePublicStorageBucket(supabaseUrl: string, supabaseKey: strin
       public: true,
     }),
   });
+}
+
+function requiresWholeQuantity(unit: ProductUnit) {
+  const fractionalUnits: ProductUnit[] = [
+    ProductUnit.METER,
+    ProductUnit.FOOT,
+    ProductUnit.YARD,
+    ProductUnit.POUND,
+  ];
+  return !fractionalUnits.includes(unit);
 }

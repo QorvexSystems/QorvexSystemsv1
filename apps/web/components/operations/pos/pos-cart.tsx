@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
-import { getAvailableStock, getProductPrice } from './pos-utils';
+import { formatQuantity, getAvailableStock, getProductPrice, getQuantityStep } from './pos-utils';
 import type { CartItem } from './types';
 
 type PosCartProps = {
@@ -42,7 +42,9 @@ export function PosCart({
           items.map((item) => {
             const unitPrice = item.unitPrice ?? getProductPrice(item.product);
             const subtotal = item.subtotal ?? unitPrice * item.quantity;
+            const discountTotal = item.discountTotal ?? 0;
             const availableStock = getAvailableStock(item.product);
+            const quantityStep = getQuantityStep(item.product);
             const stockWarning = item.product.trackInventory && item.quantity >= availableStock;
 
             return (
@@ -51,8 +53,13 @@ export function PosCart({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-zinc-950">{item.product.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {formatCurrency(unitPrice)} x {item.quantity}
+                      {formatCurrency(unitPrice)} x {formatQuantity(item.quantity)}
                     </p>
+                    {discountTotal > 0 ? (
+                      <p className="mt-1 text-xs font-medium text-emerald-700">
+                        Descuento aplicado: {formatCurrency(discountTotal)}
+                      </p>
+                    ) : null}
                     {stockWarning ? (
                       <Badge variant="warning" className="mt-2">
                         Limite de stock
@@ -81,28 +88,28 @@ export function PosCart({
                       type="button"
                       variant="outline"
                       size="icon"
-                      onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
+                      onClick={() => onUpdateQuantity(item.product.id, item.quantity - quantityStep)}
                       aria-label="Reducir cantidad"
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
                   ) : null}
                   {readOnly ? (
-                    <span className="h-9 w-12 rounded-md border border-zinc-200 bg-white text-center text-sm font-semibold leading-9">
-                      {item.quantity}
+                    <span className="h-9 min-w-12 rounded-md border border-zinc-200 bg-white px-2 text-center text-sm font-semibold leading-9">
+                      {formatQuantity(item.quantity)}
                     </span>
                   ) : (
                     <Input
                       type="number"
-                      min="1"
-                      step="1"
+                      min={quantityStep}
+                      step={quantityStep}
                       value={item.quantity}
                       onChange={(event) =>
                         onUpdateQuantity(item.product.id, Number(event.target.value || 0))
                       }
                       onFocus={(event) => event.currentTarget.select()}
                       aria-label={`Cantidad de ${item.product.name}`}
-                      className="h-9 w-20 text-center text-sm font-semibold"
+                      className="h-9 w-24 text-center text-sm font-semibold"
                     />
                   )}
                   {!readOnly ? (
@@ -110,8 +117,11 @@ export function PosCart({
                       type="button"
                       variant="outline"
                       size="icon"
-                      onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
-                      disabled={item.product.trackInventory && item.quantity >= availableStock}
+                      onClick={() => onUpdateQuantity(item.product.id, item.quantity + quantityStep)}
+                      disabled={
+                        item.product.trackInventory &&
+                        item.quantity + quantityStep > availableStock
+                      }
                       aria-label="Aumentar cantidad"
                     >
                       <Plus className="h-4 w-4" />
@@ -119,8 +129,10 @@ export function PosCart({
                   ) : null}
                   <span className="text-xs text-muted-foreground">
                     {readOnly && item.reservedQuantity
-                      ? `Reservado: ${item.reservedQuantity}`
-                      : `Disponible: ${item.product.trackInventory ? availableStock : 'No aplica'}`}
+                      ? `Reservado: ${formatQuantity(item.reservedQuantity)}`
+                      : `Disponible: ${
+                          item.product.trackInventory ? formatQuantity(availableStock) : 'No aplica'
+                        }`}
                   </span>
                 </div>
               </div>

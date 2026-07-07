@@ -21,6 +21,7 @@ import { deleteProduct, generateProductBarcode, getProductLabel, getProducts } f
 import { getStatusVariant, translateBarcodeType, translateStatus } from '@/lib/display-labels';
 import { formatCurrency } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
+import { formatQuantity } from './pos/pos-utils';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function ProductsView() {
@@ -128,7 +129,7 @@ export function ProductsView() {
           <div className="space-y-3 md:hidden">
             {(productsQuery.data ?? []).map((product) => {
               const availableStock = getAvailableStock(product);
-              const lowStock = product.trackInventory && availableStock <= product.minStock;
+              const lowStock = product.trackInventory && availableStock <= Number(product.minStock);
               return (
                 <div key={product.id} className="rounded-md border border-border p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -142,7 +143,8 @@ export function ProductsView() {
                     <span className="font-semibold">{formatCurrency(Number(product.price))}</span>
                     {product.trackInventory ? (
                       <Badge variant={lowStock ? 'danger' : 'success'}>
-                        {availableStock} disp. / {product.reservedStock} res.
+                        {formatQuantity(availableStock)} disp. /{' '}
+                        {formatQuantity(product.reservedStock)} res.
                       </Badge>
                     ) : (
                       <Badge variant="outline">Servicio</Badge>
@@ -169,7 +171,7 @@ export function ProductsView() {
             <TableBody>
               {(productsQuery.data ?? []).map((product) => {
                 const availableStock = getAvailableStock(product);
-                const lowStock = product.trackInventory && availableStock <= product.minStock;
+                const lowStock = product.trackInventory && availableStock <= Number(product.minStock);
                 return (
                   <TableRow key={product.id}>
                     <TableCell>
@@ -188,10 +190,12 @@ export function ProductsView() {
                       {product.trackInventory ? (
                         <div>
                           <Badge variant={lowStock ? 'danger' : 'success'}>
-                            {availableStock} disp. / {product.reservedStock} res.
+                            {formatQuantity(availableStock)} disp. /{' '}
+                            {formatQuantity(product.reservedStock)} res.
                           </Badge>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Total {product.stock} / min {product.minStock}
+                            Total {formatQuantity(product.stock)} / min{' '}
+                            {formatQuantity(product.minStock)}
                           </p>
                         </div>
                       ) : (
@@ -254,6 +258,6 @@ export function ProductsView() {
   );
 }
 
-function getAvailableStock(product: { stock: number; reservedStock: number }) {
-  return Math.max(product.stock - product.reservedStock, 0);
+function getAvailableStock(product: { stock: number | string; reservedStock: number | string }) {
+  return Math.max(Number(product.stock) - Number(product.reservedStock), 0);
 }

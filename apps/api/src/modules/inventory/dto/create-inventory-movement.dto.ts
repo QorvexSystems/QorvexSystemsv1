@@ -1,6 +1,6 @@
 import { InventoryMovementType } from '@qorvex/database';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateInventoryMovementDto {
   @IsString()
@@ -10,8 +10,8 @@ export class CreateInventoryMovementDto {
   type: InventoryMovementType;
 
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsNumber()
+  @Min(0.001)
   quantity: number;
 
   @IsOptional()

@@ -51,7 +51,15 @@ import {
 import { PosCart } from './pos/pos-cart';
 import { PosPaymentPanel } from './pos/pos-payment-panel';
 import { PosProductGrid } from './pos/pos-product-grid';
-import { canAddProduct, getAvailableStock, getProductPrice, uniqueValues } from './pos/pos-utils';
+import {
+  canAddProduct,
+  getAvailableStock,
+  getDefaultQuantity,
+  getProductPrice,
+  getQuantityStep,
+  roundQuantity,
+  uniqueValues,
+} from './pos/pos-utils';
 import { playScanFeedback } from './pos/scan-feedback';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -170,12 +178,13 @@ export function PosView() {
           getProductPrice(item.product) * item.quantity * Number(item.product.taxRate)),
       0,
     );
+    const discount = cart.reduce((sum, item) => sum + (item.discountTotal ?? 0), 0);
     const total = subtotal + tax;
     const received = parseCurrencyInput(amountReceived);
 
     return {
       subtotal,
-      discount: 0,
+      discount,
       tax,
       total,
       received,
@@ -438,11 +447,23 @@ export function PosView() {
 
       if (existing) {
         return current.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item,
+          item.product.id === product.id
+            ? {
+                ...item,
+                quantity: roundQuantity(
+                  item.product.trackInventory
+                    ? Math.min(
+                        item.quantity + getQuantityStep(item.product),
+                        getAvailableStock(item.product),
+                      )
+                    : item.quantity + getQuantityStep(item.product),
+                ),
+              }
+            : item,
         );
       }
 
-      return [...current, { product, quantity: 1 }];
+      return [...current, { product, quantity: getDefaultQuantity(product) }];
     });
 
     return true;
@@ -462,12 +483,17 @@ export function PosView() {
             return item;
           }
 
-          const availableStock = getAvailableStock(item.product);
-          const nextQuantity = item.product.trackInventory
-            ? Math.min(quantity, availableStock)
-            : quantity;
+          if (quantity <= 0) {
+            return { ...item, quantity: 0 };
+          }
 
-          return { ...item, quantity: nextQuantity };
+          const availableStock = getAvailableStock(item.product);
+          const quantityStep = getQuantityStep(item.product);
+          const nextQuantity = item.product.trackInventory
+            ? Math.min(Math.max(quantity, quantityStep), availableStock)
+            : Math.max(quantity, quantityStep);
+
+          return { ...item, quantity: roundQuantity(nextQuantity) };
         })
         .filter((item) => item.quantity > 0),
     );
@@ -503,6 +529,7 @@ export function PosView() {
         product: item.product,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
+        discountTotal: Number(item.discountTotal ?? 0),
         reservedQuantity: item.reservedQuantity,
         subtotal: Number(item.subtotal),
         taxTotal: Number(item.taxTotal),

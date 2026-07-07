@@ -6,6 +6,7 @@ import {
   InvoiceStatus,
   Prisma,
   ProductStatus,
+  ProductUnit,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -98,8 +99,8 @@ export class InvoicesService {
 
           const quantity = item.quantity.toNumber();
 
-          if (!Number.isInteger(quantity)) {
-            throw new BadRequestException('Tracked inventory products require integer quantities.');
+          if (requiresWholeQuantity(item.product.unit) && !Number.isInteger(quantity)) {
+            throw new BadRequestException('Tracked inventory products require whole quantities.');
           }
 
           if (item.product.stock < quantity) {
@@ -280,4 +281,14 @@ export class InvoicesService {
 
     return new Map(products.map((product) => [product.id, product]));
   }
+}
+
+function requiresWholeQuantity(unit: ProductUnit) {
+  const fractionalUnits: ProductUnit[] = [
+    ProductUnit.METER,
+    ProductUnit.FOOT,
+    ProductUnit.YARD,
+    ProductUnit.POUND,
+  ];
+  return !fractionalUnits.includes(unit);
 }

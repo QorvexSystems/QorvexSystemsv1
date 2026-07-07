@@ -11,8 +11,10 @@ import {
   EmployeeStatus,
   Prisma,
   ProductStatus,
+  ProductUnit,
   Role,
   SalesOrderDestination,
+  SalesOrderPriceLevel,
   SalesOrderStatus,
 } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
@@ -42,6 +44,7 @@ type ComputedOrderItem = {
   quantity: Prisma.Decimal;
   reservedQuantity: number;
   unitPrice: Prisma.Decimal;
+  discountTotal: Prisma.Decimal;
   subtotal: Prisma.Decimal;
   taxTotal: Prisma.Decimal;
   total: Prisma.Decimal;
@@ -165,6 +168,8 @@ export class OrdersService {
 
     const clientName = dto.clientName?.trim() || undefined;
     const destination = dto.destination ?? SalesOrderDestination.CASH_SALE;
+    const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
+    const discountRate = this.getDiscountRate(priceLevel);
 
     if (destination === SalesOrderDestination.QUOTATION) {
       this.validateQuotationDocument(dto);
@@ -184,7 +189,7 @@ export class OrdersService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const computed = await this.computeOrder(tenantId, dto.items, tx);
+      const computed = await this.computeOrder(tenantId, dto.items, tx, priceLevel);
       const isQuotation = destination === SalesOrderDestination.QUOTATION;
 
       if (!isQuotation) {
@@ -204,8 +209,11 @@ export class OrdersService {
             : undefined,
           orderNumber: this.generateOrderNumber(isQuotation),
           status: isQuotation ? SalesOrderStatus.QUOTATION : SalesOrderStatus.SENT_TO_CASHIER,
+          priceLevel,
+          discountRate,
           subtotal: computed.subtotal,
           taxTotal: computed.taxTotal,
+          discountTotal: computed.discountTotal,
           total: computed.total,
           notes: dto.notes?.trim() || undefined,
           createdById: user.id,
@@ -219,6 +227,7 @@ export class OrdersService {
               quantity: item.quantity,
               reservedQuantity: isQuotation ? 0 : item.reservedQuantity,
               unitPrice: item.unitPrice,
+              discountTotal: item.discountTotal,
               taxRate: item.product.taxRate,
               taxTotal: item.taxTotal,
               subtotal: item.subtotal,
@@ -517,7 +526,7 @@ export class OrdersService {
       }));
 
       // Compute order and validate stock
-      const computed = await this.computeOrder(tenantId, orderItems, tx);
+      const computed = await this.computeOrder(tenantId, orderItems, tx, order.priceLevel);
 
       // Reserve stock for the order
       await this.reserveStockForOrder(tenantId, computed.items, tx);
@@ -584,8 +593,9 @@ export class OrdersService {
         where: { salesOrderId: id },
       });
 
-      // Compute new totals
-      const computed = await this.computeOrder(tenantId, dto.items, tx);
+      const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
+      const discountRate = this.getDiscountRate(priceLevel);
+      const computed = await this.computeOrder(tenantId, dto.items, tx, priceLevel);
 
       // Update order fields
       const updated = await tx.salesOrder.update({
@@ -593,12 +603,15 @@ export class OrdersService {
         data: {
           clientName: dto.clientName?.trim() || undefined,
           customerId: dto.customerId || null,
+          priceLevel,
+          discountRate,
           quotationDocumentType: dto.quotationDocumentType,
           quotationDocumentNumber: dto.quotationDocumentNumber
             ? normalizeDominicanDocument(dto.quotationDocumentNumber)
             : null,
           subtotal: computed.subtotal,
           taxTotal: computed.taxTotal,
+          discountTotal: computed.discountTotal,
           total: computed.total,
           notes: dto.notes?.trim() || null,
           items: {
@@ -610,6 +623,7 @@ export class OrdersService {
               quantity: item.quantity,
               reservedQuantity: 0,
               unitPrice: item.unitPrice,
+              discountTotal: item.discountTotal,
               taxRate: item.product.taxRate,
               taxTotal: item.taxTotal,
               subtotal: item.subtotal,
@@ -641,6 +655,7 @@ export class OrdersService {
     tenantId: string,
     items: SalesOrderItemDto[],
     client: PrismaService | Prisma.TransactionClient = this.prisma,
+    priceLevel: SalesOrderPriceLevel = SalesOrderPriceLevel.REGULAR,
   ) {
     if (!items.length) {
       throw new BadRequestException('Sales order must include at least one item.');
@@ -666,10 +681,14 @@ export class OrdersService {
       throw new NotFoundException('One or more order products do not belong to tenant.');
     }
 
+    const discountRate = this.getDiscountRate(priceLevel);
     const computedItems: ComputedOrderItem[] = products.map((product) => {
       const quantity = new Prisma.Decimal(quantitiesByProduct.get(product.id) ?? 0);
-      const unitPrice = product.salePrice.gt(0) ? product.salePrice : product.price;
+      const regularUnitPrice = product.salePrice.gt(0) ? product.salePrice : product.price;
+      const unitPrice = regularUnitPrice.mul(new Prisma.Decimal(1).sub(discountRate)).toDecimalPlaces(2);
+      const regularSubtotal = quantity.mul(regularUnitPrice).toDecimalPlaces(2);
       const subtotal = quantity.mul(unitPrice).toDecimalPlaces(2);
+      const discountTotal = regularSubtotal.sub(subtotal).toDecimalPlaces(2);
       const taxTotal = subtotal.mul(product.taxRate).toDecimalPlaces(2);
 
       return {
@@ -677,6 +696,7 @@ export class OrdersService {
         quantity,
         reservedQuantity: product.trackInventory ? quantity.toNumber() : 0,
         unitPrice,
+        discountTotal,
         subtotal,
         taxTotal,
         total: subtotal.add(taxTotal).toDecimalPlaces(2),
@@ -687,9 +707,13 @@ export class OrdersService {
       const quantity = item.quantity.toNumber();
       const availableStock = item.product.stock - item.product.reservedStock;
 
-      if (item.product.trackInventory && !Number.isInteger(quantity)) {
+      if (
+        item.product.trackInventory &&
+        requiresWholeQuantity(item.product.unit) &&
+        !Number.isInteger(quantity)
+      ) {
         throw new BadRequestException(
-          `Tracked product ${item.product.name} requires integer quantities.`,
+          `Tracked product ${item.product.name} requires whole quantities.`,
         );
       }
 
@@ -706,10 +730,25 @@ export class OrdersService {
       taxTotal: computedItems
         .reduce((sum, item) => sum.add(item.taxTotal), new Prisma.Decimal(0))
         .toDecimalPlaces(2),
+      discountTotal: computedItems
+        .reduce((sum, item) => sum.add(item.discountTotal), new Prisma.Decimal(0))
+        .toDecimalPlaces(2),
       total: computedItems
         .reduce((sum, item) => sum.add(item.total), new Prisma.Decimal(0))
         .toDecimalPlaces(2),
     };
+  }
+
+  private getDiscountRate(priceLevel: SalesOrderPriceLevel) {
+    if (priceLevel === SalesOrderPriceLevel.DISCOUNT_10) {
+      return new Prisma.Decimal('0.10');
+    }
+
+    if (priceLevel === SalesOrderPriceLevel.PREFERRED_18) {
+      return new Prisma.Decimal('0.18');
+    }
+
+    return new Prisma.Decimal(0);
   }
 
   private async reserveStockForOrder(
@@ -973,4 +1012,14 @@ export class OrdersService {
       })),
     };
   }
+}
+
+function requiresWholeQuantity(unit: ProductUnit) {
+  const fractionalUnits: ProductUnit[] = [
+    ProductUnit.METER,
+    ProductUnit.FOOT,
+    ProductUnit.YARD,
+    ProductUnit.POUND,
+  ];
+  return !fractionalUnits.includes(unit);
 }

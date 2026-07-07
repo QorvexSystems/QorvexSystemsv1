@@ -83,9 +83,9 @@ export class ImportsService {
       const errorsBeforeRow = rowErrors.length;
       const name = getText(normalized, ['nombre', 'producto', 'name', 'product']);
       const price = getMoney(normalized, ['precio', 'precio venta', 'sale price', 'price']);
-      const stock = getInteger(normalized, ['stock', 'existencia', 'inventario', 'cantidad']);
+      const stock = getQuantity(normalized, ['stock', 'existencia', 'inventario', 'cantidad']);
       const cost = getOptionalMoney(normalized, ['costo', 'cost']);
-      const minStock = getOptionalInteger(normalized, ['stock minimo', 'min stock', 'minimo']);
+      const minStock = getOptionalQuantity(normalized, ['stock minimo', 'min stock', 'minimo']);
       const taxRate = getOptionalTaxRate(normalized, ['itbis', 'tax', 'tax rate', 'impuesto']);
 
       if (!name) {
@@ -110,7 +110,7 @@ export class ImportsService {
         rowErrors.push({
           rowNumber,
           field: 'stock',
-          message: 'El stock debe ser un numero entero mayor o igual a cero.',
+          message: 'El stock debe ser un numero mayor o igual a cero.',
           rawData,
         });
       }
@@ -304,25 +304,25 @@ function getOptionalMoney(row: Map<string, unknown>, keys: string[]) {
   return getMoney(row, keys);
 }
 
-function getInteger(row: Map<string, unknown>, keys: string[]) {
+function getQuantity(row: Map<string, unknown>, keys: string[]) {
   const value = getRawValue(row, keys);
   const parsed = parseNumericValue(value);
 
-  if (parsed === null || !Number.isInteger(parsed)) {
+  if (parsed === null) {
     return null;
   }
 
-  return parsed;
+  return Number(parsed.toFixed(3));
 }
 
-function getOptionalInteger(row: Map<string, unknown>, keys: string[]) {
+function getOptionalQuantity(row: Map<string, unknown>, keys: string[]) {
   const value = getRawValue(row, keys);
 
   if (isBlank(value)) {
     return null;
   }
 
-  return getInteger(row, keys);
+  return getQuantity(row, keys);
 }
 
 function getOptionalTaxRate(row: Map<string, unknown>, keys: string[]) {
@@ -427,10 +427,19 @@ function getProductUnit(value?: string) {
     roll: ProductUnit.ROLL,
     metro: ProductUnit.METER,
     meter: ProductUnit.METER,
+    mt: ProductUnit.METER,
     pie: ProductUnit.FOOT,
     foot: ProductUnit.FOOT,
+    ft: ProductUnit.FOOT,
+    yarda: ProductUnit.YARD,
+    yard: ProductUnit.YARD,
+    yards: ProductUnit.YARD,
+    yd: ProductUnit.YARD,
+    yds: ProductUnit.YARD,
     libra: ProductUnit.POUND,
     pound: ProductUnit.POUND,
+    lb: ProductUnit.POUND,
+    lbs: ProductUnit.POUND,
     galon: ProductUnit.GALLON,
     gallon: ProductUnit.GALLON,
     litro: ProductUnit.LITER,

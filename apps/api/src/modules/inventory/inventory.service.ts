@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryMovementType } from '@qorvex/database';
+import { InventoryMovementType, ProductUnit } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateInventoryMovementDto } from './dto/create-inventory-movement.dto';
@@ -40,6 +40,10 @@ export class InventoryService {
 
     if (!product) {
       throw new NotFoundException('Product not found for tenant.');
+    }
+
+    if (requiresWholeQuantity(product.unit) && !Number.isInteger(dto.quantity)) {
+      throw new BadRequestException('Product unit requires whole inventory quantities.');
     }
 
     const signedQuantity = this.getSignedQuantity(dto.type, dto.quantity);
@@ -109,4 +113,14 @@ export class InventoryService {
 
     return quantity;
   }
+}
+
+function requiresWholeQuantity(unit: ProductUnit) {
+  const fractionalUnits: ProductUnit[] = [
+    ProductUnit.METER,
+    ProductUnit.FOOT,
+    ProductUnit.YARD,
+    ProductUnit.POUND,
+  ];
+  return !fractionalUnits.includes(unit);
 }

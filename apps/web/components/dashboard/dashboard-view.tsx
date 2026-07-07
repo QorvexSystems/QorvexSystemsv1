@@ -45,6 +45,7 @@ import {
   translateStatus,
 } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatQuantity } from '@/components/operations/pos/pos-utils';
 
 export function DashboardView() {
   const session = getSession();
@@ -272,7 +273,8 @@ export function DashboardView() {
                     <p className="text-xs text-muted-foreground">{product.sku ?? 'Sin SKU'}</p>
                   </div>
                   <Badge variant="danger">
-                    {Math.max(product.stock - product.reservedStock, 0)}/{product.minStock}
+                    {formatQuantity(Math.max(Number(product.stock) - Number(product.reservedStock), 0))}/
+                    {formatQuantity(product.minStock)}
                   </Badge>
                 </Link>
               ))

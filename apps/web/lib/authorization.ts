@@ -26,6 +26,10 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
     return isAdminSession(session);
   }
 
+  if (pathname === '/returns' || pathname.startsWith('/returns/')) {
+    return isAdminSession(session) || Boolean(session.permissions.canUsePos);
+  }
+
   if (isAdminSession(session)) {
     return true;
   }

@@ -9,7 +9,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { DocumentType, SalesOrderDestination } from '@qorvex/database';
+import { DocumentType, SalesOrderDestination, SalesOrderPriceLevel } from '@qorvex/database';
 
 export class SalesOrderItemDto {
   @IsString()
@@ -33,6 +33,10 @@ export class CreateSalesOrderDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @IsOptional()
+  @IsEnum(SalesOrderPriceLevel)
+  priceLevel?: SalesOrderPriceLevel;
 
   @IsOptional()
   @IsEnum(DocumentType)

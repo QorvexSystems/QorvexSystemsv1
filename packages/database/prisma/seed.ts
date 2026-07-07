@@ -32,7 +32,7 @@ function assertSeedAllowed() {
     throw new Error(
       [
         'Refusing to run the development seed in production.',
-        'This seed deletes existing data before recreating the Qorvex/RIVNU demo dataset.',
+        'This seed deletes existing data before recreating the CoreStack/RIVNU demo dataset.',
         'Set ALLOW_PRODUCTION_SEED=true only for an intentional staging/demo reseed.',
       ].join(' '),
     );
@@ -112,13 +112,13 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(demoPassword, 12);
 
-  const qorvexTenant = await prisma.tenant.create({
+  const coreStackTenant = await prisma.tenant.create({
     data: {
-      name: 'Qorvex Systems',
-      commercialName: 'Qorvex',
-      legalName: 'Qorvex Systems SRL',
-      slug: 'qorvex-systems',
-      email: 'soporte@qorvex.local',
+      name: 'CoreStack',
+      commercialName: 'CoreStack',
+      legalName: 'CoreStack SRL',
+      slug: 'corestack',
+      email: 'soporte@corestack.local',
       phone: '809-555-9000',
       address: 'Santo Domingo, Republica Dominicana',
       branding: {
@@ -126,7 +126,7 @@ async function main() {
           logoUrl: null,
           primaryColor: '#111827',
           accentColor: '#f36c10',
-          loginTitle: 'Qorvex Core',
+          loginTitle: 'CoreStack Core',
           loginSubtitle: 'Administracion interna de la plataforma.',
         },
       },
@@ -157,13 +157,13 @@ async function main() {
 
   const superAdmin = await prisma.user.create({
     data: {
-      email: 'superadmin@qorvex.local',
-      name: 'Soporte Qorvex',
+      email: 'superadmin@corestack.local',
+      name: 'Soporte CoreStack',
       phone: '809-555-9001',
       passwordHash,
       memberships: {
         create: {
-          tenantId: qorvexTenant.id,
+          tenantId: coreStackTenant.id,
           role: Role.SUPER_ADMIN,
           canViewReports: true,
           canManageFiscalSequences: true,
@@ -1050,18 +1050,18 @@ async function main() {
         metadata: {
           source: 'development-seed',
           tenant: 'Ferreteria RIVNU',
-          poweredBy: 'Qorvex',
+          poweredBy: 'CoreStack',
         },
       },
       {
-        tenantId: qorvexTenant.id,
+        tenantId: coreStackTenant.id,
         userId: superAdmin.id,
-        action: 'QORVEX_CORE_SEED_CREATED',
+        action: 'CORESTACK_CORE_SEED_CREATED',
         entity: 'Tenant',
-        entityId: qorvexTenant.id,
+        entityId: coreStackTenant.id,
         metadata: {
           source: 'development-seed',
-          note: 'Qorvex es proveedor/core, no tenant operativo de RIVNU.',
+          note: 'CoreStack es proveedor/core, no tenant operativo de RIVNU.',
         },
       },
     ],
@@ -1071,7 +1071,7 @@ async function main() {
   console.log(`RIVNU admin login: admin@rivnu.local / ${demoPassword}`);
   console.log(`RIVNU cashier login: cajero@rivnu.local / ${demoPassword}`);
   console.log(`RIVNU ordenanza login: ordenanza@rivnu.local / ${demoPassword}`);
-  console.log(`Qorvex platform login: superadmin@qorvex.local / ${demoPassword}`);
+  console.log(`CoreStack platform login: superadmin@corestack.local / ${demoPassword}`);
 }
 
 main()

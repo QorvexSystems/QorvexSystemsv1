@@ -10,6 +10,7 @@ import {
   Package,
   PanelLeftClose,
   PanelLeftOpen,
+  RotateCcw,
   ScrollText,
   ShoppingCart,
   Settings,
@@ -30,6 +31,7 @@ export const navigation: Array<{ name: string; href: string; icon: LucideIcon; p
   { name: 'Productos', href: '/products', icon: Package },
   { name: 'Clientes', href: '/customers', icon: Users },
   { name: 'Facturas', href: '/invoices', icon: FileText, primary: true },
+  { name: 'Devoluciones', href: '/returns', icon: RotateCcw, primary: true },
   { name: 'Empleados', href: '/employees', icon: Users },
   { name: 'Caja / Logs', href: '/cash/logs', icon: ClipboardList },
   { name: 'Sesiones', href: '/cash/sessions', icon: ScrollText },
@@ -80,7 +82,7 @@ export function SidebarContent({
         </div>
         <div className={cn('min-w-0', collapsed && 'hidden')}>
           <p className="truncate text-sm font-semibold">Ferreteria RIVNU</p>
-          <p className="truncate text-xs text-slate-400">Powered by Qorvex</p>
+          <p className="truncate text-xs text-slate-400">Powered by CoreStack</p>
         </div>
       </div>
 
@@ -130,10 +132,10 @@ export function SidebarContent({
         <div className="rounded-md border border-slate-800 bg-slate-900 p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
             <Boxes className="h-4 w-4 text-[#f36c10]" />
-            <span className={cn(collapsed && 'hidden')}>Qorvex Core</span>
+            <span className={cn(collapsed && 'hidden')}>CoreStack Core</span>
           </div>
           <p className={cn('text-xs leading-5 text-slate-400', collapsed && 'hidden')}>
-            Plataforma provista por Qorvex. Datos aislados por tenant.
+            Plataforma provista por CoreStack. Datos aislados por tenant.
           </p>
         </div>
       </div>
@@ -151,7 +153,9 @@ export function getVisibleNavigation(session: AuthSession | null) {
   }
 
   if (canTakeOrders(session) && session?.permissions.canUsePos) {
-    return navigation.filter((item) => item.href === '/orders' || item.href === '/pos');
+    return navigation.filter(
+      (item) => item.href === '/orders' || item.href === '/pos' || item.href === '/returns',
+    );
   }
 
   if (canTakeOrders(session)) {
@@ -159,7 +163,7 @@ export function getVisibleNavigation(session: AuthSession | null) {
   }
 
   if (session?.permissions.canUsePos) {
-    return navigation.filter((item) => item.href === '/pos');
+    return navigation.filter((item) => item.href === '/pos' || item.href === '/returns');
   }
 
   return [];

@@ -15,6 +15,7 @@ import { getInventoryMovements, getProducts } from '@/lib/api';
 import { translateInventoryMovementType } from '@/lib/display-labels';
 import { formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
+import { formatQuantity } from './pos/pos-utils';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function InventoryView() {
@@ -35,7 +36,7 @@ export function InventoryView() {
   }
 
   const lowStock = (productsQuery.data ?? []).filter(
-    (product) => product.trackInventory && getAvailableStock(product) <= product.minStock,
+    (product) => product.trackInventory && getAvailableStock(product) <= Number(product.minStock),
   );
 
   return (
@@ -87,7 +88,7 @@ export function InventoryView() {
                   </Badge>
                 </div>
                 <div className="mt-3 flex items-center justify-between text-sm">
-                  <span>Cantidad {movement.quantity}</span>
+                  <span>Cantidad {formatQuantity(movement.quantity)}</span>
                   <span className="text-muted-foreground">{movement.reference ?? movement.reason ?? 'Sin referencia'}</span>
                 </div>
               </div>
@@ -115,7 +116,7 @@ export function InventoryView() {
                       {translateInventoryMovementType(movement.type)}
                     </Badge>
                   </TableCell>
-                  <TableCell>{movement.quantity}</TableCell>
+                  <TableCell>{formatQuantity(movement.quantity)}</TableCell>
                   <TableCell>{movement.reference ?? movement.reason ?? 'Sin referencia'}</TableCell>
                 </TableRow>
               ))}
@@ -128,6 +129,6 @@ export function InventoryView() {
   );
 }
 
-function getAvailableStock(product: { stock: number; reservedStock: number }) {
-  return Math.max(product.stock - product.reservedStock, 0);
+function getAvailableStock(product: { stock: number | string; reservedStock: number | string }) {
+  return Math.max(Number(product.stock) - Number(product.reservedStock), 0);
 }

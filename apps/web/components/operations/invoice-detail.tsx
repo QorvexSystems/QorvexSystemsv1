@@ -10,6 +10,7 @@ import { getInvoice } from '@/lib/api';
 import { translatePaymentMethod, translateStatus } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
+import { formatQuantity } from './pos/pos-utils';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function InvoiceDetail({
@@ -132,7 +133,7 @@ function Receipt({ invoice }: { invoice: NonNullable<Awaited<ReturnType<typeof g
               <span>{formatCurrency(Number(item.total))}</span>
             </div>
             <p className="text-xs text-zinc-600">
-              {Number(item.quantity)} x {formatCurrency(Number(item.unitPrice))}
+              {formatQuantity(item.quantity)} x {formatCurrency(Number(item.unitPrice))}
             </p>
           </div>
         ))}
@@ -173,7 +174,7 @@ function Receipt({ invoice }: { invoice: NonNullable<Awaited<ReturnType<typeof g
         </div>
       </div>
 
-      <p className="pt-2 text-center text-xs text-zinc-500">Powered by Qorvex</p>
+      <p className="pt-2 text-center text-xs text-zinc-500">Powered by CoreStack</p>
     </section>
   );
 }
