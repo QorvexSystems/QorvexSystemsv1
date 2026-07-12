@@ -184,8 +184,8 @@ async function main() {
         create: {
           tenantId: rivnuTenant.id,
           role: Role.ADMIN,
-          canUsePos: true,
-          canOpenCashSession: true,
+          canUsePos: false,
+          canOpenCashSession: false,
           canCloseCashSession: true,
           canApplyDiscount: true,
           canCancelInvoice: true,

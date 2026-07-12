@@ -13,4 +13,9 @@ export class DashboardController {
   summary(@TenantId() tenantId: string) {
     return this.dashboardService.getSummary(tenantId);
   }
+
+  @Get('product-sales')
+  productSales(@TenantId() tenantId: string) {
+    return this.dashboardService.getProductSales(tenantId);
+  }
 }

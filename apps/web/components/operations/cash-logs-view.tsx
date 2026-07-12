@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/table';
 import { getCashMovements, getEmployeeLogs } from '@/lib/api';
 import { translateCashMovementType, translateEmployeeAction, translateEntity } from '@/lib/display-labels';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
 
@@ -57,7 +57,7 @@ export function CashLogsView() {
             <TableBody>
               {(cashQuery.data ?? []).map((movement) => (
                 <TableRow key={movement.id}>
-                  <TableCell>{formatDate(movement.createdAt)}</TableCell>
+                  <TableCell>{formatDateTime(movement.createdAt)}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{translateCashMovementType(movement.type)}</Badge>
                   </TableCell>
@@ -87,7 +87,7 @@ export function CashLogsView() {
                   {translateEntity(log.entity)} {log.invoiceNumber ? `- ${log.invoiceNumber}` : ''}
                 </p>
               </div>
-              <span className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</span>
+              <span className="text-xs text-muted-foreground">{formatDateTime(log.createdAt)}</span>
             </div>
           ))}
         </CardContent>

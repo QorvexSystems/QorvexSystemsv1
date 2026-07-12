@@ -26,6 +26,10 @@ export type DashboardSummary = {
   claimedOrders: number;
   ordersInCashier: number;
   pendingQuotations: number;
+  quotationSalesInCashier: number;
+  quotationSalesInCashierAmount: number;
+  completedQuotationSalesToday: number;
+  completedQuotationSalesTodayAmount: number;
   completedOrdersToday: number;
   pendingReturns: number;
   completedReturns: number;
@@ -87,6 +91,29 @@ export type DashboardSummary = {
     month: string;
     total: number;
   }>;
+};
+
+export type ProductSalesMetric = {
+  productId: string;
+  name: string;
+  sku: string | null;
+  brand: string | null;
+  unit: string;
+  categoryName: string;
+  currentPrice: number;
+  quantitySold: number;
+  grossAmount: number;
+  invoiceCount: number;
+  lastSoldAt: string | null;
+};
+
+export type ProductSalesRanking = {
+  generatedAt: string;
+  productCount: number;
+  productsWithSales: number;
+  productsWithoutSales: number;
+  mostSold: ProductSalesMetric[];
+  leastSold: ProductSalesMetric[];
 };
 
 export type LoginResponse = {
@@ -659,6 +686,7 @@ const apiMessageTranslations: Record<string, string> = {
     'Los movimientos manuales de caja deben ser entrada, salida o ajuste.',
   'Employee does not have permission for this cash operation.':
     'Tu usuario no tiene permiso para esta operacion de caja.',
+  'Admins cannot open cash sessions.': 'El administrador no puede abrir caja.',
   'Employee does not have permission to view cash logs.':
     'Tu usuario no tiene permiso para ver los logs de caja.',
   'An open cash session for this cashier is required to complete POS sales.':
@@ -890,6 +918,12 @@ function tenantHeaders(tenantId: string, accessToken: string) {
 
 export function getDashboardSummary(tenantId: string, accessToken: string) {
   return fetchJson<DashboardSummary>('/dashboard/summary', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getProductSalesRanking(tenantId: string, accessToken: string) {
+  return fetchJson<ProductSalesRanking>('/dashboard/product-sales', {
     headers: tenantHeaders(tenantId, accessToken),
   });
 }
