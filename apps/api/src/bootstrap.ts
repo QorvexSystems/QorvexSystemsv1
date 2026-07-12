@@ -16,6 +16,8 @@ export async function createQorvexApiApp() {
   const config = app.get(ConfigService);
   const expressApp = app.getHttpAdapter().getInstance();
 
+  assertSecurityConfiguration(config);
+
   expressApp.set('trust proxy', getTrustProxy(config));
 
   app.use(
@@ -38,6 +40,12 @@ export async function createQorvexApiApp() {
 
   app.use((_request: Request, response: Response, next: NextFunction) => {
     response.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    next();
+  });
+
+  app.use('/auth', (_request: Request, response: Response, next: NextFunction) => {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Pragma', 'no-cache');
     next();
   });
 
@@ -66,13 +74,16 @@ export async function createQorvexApiApp() {
       legacyHeaders: false,
       message: {
         statusCode: 429,
-        message: 'Demasiados intentos de inicio de sesion. Espera unos minutos y vuelve a intentarlo.',
+        message:
+          'Demasiados intentos de inicio de sesion. Espera unos minutos y vuelve a intentarlo.',
       },
     }),
   );
 
   app.use(json({ limit: getStringConfig(config, 'API_JSON_BODY_LIMIT', '1mb') }));
-  app.use(urlencoded({ extended: false, limit: getStringConfig(config, 'API_FORM_BODY_LIMIT', '1mb') }));
+  app.use(
+    urlencoded({ extended: false, limit: getStringConfig(config, 'API_FORM_BODY_LIMIT', '1mb') }),
+  );
 
   app.enableCors({
     origin: getAllowedOrigins(config),
@@ -91,6 +102,51 @@ export async function createQorvexApiApp() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   return app;
+}
+
+function assertSecurityConfiguration(config: ConfigService) {
+  const jwtSecret = config.get<string>('JWT_SECRET')?.trim() ?? '';
+
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET is required.');
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    return;
+  }
+
+  const insecureSecrets = new Set([
+    'change-me',
+    'replace-with-corestack-secret',
+    'secret',
+    'your-secret-key',
+  ]);
+
+  if (jwtSecret.length < 32 || insecureSecrets.has(jwtSecret.toLowerCase())) {
+    throw new Error('JWT_SECRET must be a unique production secret with at least 32 characters.');
+  }
+
+  const corsOrigins = config
+    .get<string>('CORS_ORIGIN', '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (!corsOrigins.length) {
+    throw new Error('CORS_ORIGIN must contain at least one production web origin.');
+  }
+
+  for (const origin of corsOrigins) {
+    if (origin === '*' || origin.includes('YOUR_')) {
+      throw new Error(`CORS_ORIGIN contains an unsafe placeholder: ${origin}`);
+    }
+
+    const parsedOrigin = new URL(origin);
+
+    if (parsedOrigin.protocol !== 'https:') {
+      throw new Error(`CORS_ORIGIN must use HTTPS in production: ${origin}`);
+    }
+  }
 }
 
 type IpRule =
@@ -130,7 +186,10 @@ function createInternalAccessMiddleware(config: ConfigService) {
 }
 
 function getTrustProxy(config: ConfigService) {
-  const rawValue = config.get<string>('TRUST_PROXY', process.env.NODE_ENV === 'production' ? '1' : 'false');
+  const rawValue = config.get<string>(
+    'TRUST_PROXY',
+    process.env.NODE_ENV === 'production' ? '1' : 'false',
+  );
 
   if (rawValue === 'true') {
     return true;
@@ -156,7 +215,9 @@ function getStringConfig(config: ConfigService, key: string, fallback: string) {
 
 function getAllowedOrigins(config: ConfigService) {
   const rawOrigins =
-    config.get<string>('CORS_ORIGIN') ?? config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
+    config.get<string>('CORS_ORIGIN') ??
+    config.get<string>('WEB_ORIGIN') ??
+    'http://localhost:3000';
   const origins = rawOrigins
     .split(',')
     .map((origin) => origin.trim())
@@ -215,7 +276,8 @@ function parseAllowedIpRules(value: string) {
 function getClientIp(request: Request) {
   const forwardedFor = request.headers['x-forwarded-for'];
   const firstForwardedIp = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
-  const candidate = firstForwardedIp?.split(',')[0] ?? request.ip ?? request.socket.remoteAddress ?? '';
+  const candidate =
+    firstForwardedIp?.split(',')[0] ?? request.ip ?? request.socket.remoteAddress ?? '';
   return normalizeIp(candidate);
 }
 
@@ -249,9 +311,7 @@ function ipv4ToNumber(value: string) {
     return null;
   }
 
-  return (
-    (((octets[0] << 24) >>> 0) + (octets[1] << 16) + (octets[2] << 8) + octets[3]) >>> 0
-  );
+  return (((octets[0] << 24) >>> 0) + (octets[1] << 16) + (octets[2] << 8) + octets[3]) >>> 0;
 }
 
 export async function listenQorvexApi(app: INestApplication) {
