@@ -44,7 +44,7 @@ export class AuthService {
 
     const configuredExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '8h');
     const tokenOptions = {
-      secret: this.config.get<string>('JWT_SECRET', 'change-me'),
+      secret: this.config.getOrThrow<string>('JWT_SECRET'),
       expiresIn: this.parseExpiresInSeconds(configuredExpiresIn),
     } as Parameters<JwtService['signAsync']>[1];
 

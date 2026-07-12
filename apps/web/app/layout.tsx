@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   },
 };
 
+// A per-request CSP nonce requires dynamic rendering so Next.js can attach the
+// nonce to its generated scripts instead of permitting arbitrary inline code.
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="es">

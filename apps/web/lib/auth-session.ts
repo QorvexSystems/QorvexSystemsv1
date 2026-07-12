@@ -47,7 +47,12 @@ export function getSession() {
   try {
     const session = JSON.parse(raw) as AuthSession;
 
-    if (!session.accessToken || !session.tenantId || !session.expiresAt || session.expiresAt <= Date.now()) {
+    if (
+      !session.accessToken ||
+      !session.tenantId ||
+      !session.expiresAt ||
+      session.expiresAt <= Date.now()
+    ) {
       clearSession();
       return null;
     }
@@ -65,11 +70,15 @@ export function clearSession() {
   }
 
   window.localStorage.removeItem(sessionKey);
-  document.cookie = `${sessionCookieName}=; Path=/; Max-Age=0; SameSite=Lax`;
+  document.cookie = `${sessionCookieName}=; Path=/; Max-Age=0; SameSite=Strict${getSecureCookieAttribute()}`;
 }
 
 function setSessionCookie(maxAgeSeconds: number) {
-  document.cookie = `${sessionCookieName}=1; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
+  document.cookie = `${sessionCookieName}=1; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Strict${getSecureCookieAttribute()}`;
+}
+
+function getSecureCookieAttribute() {
+  return window.location.protocol === 'https:' ? '; Secure' : '';
 }
 
 function parseExpiresInSeconds(value: string) {

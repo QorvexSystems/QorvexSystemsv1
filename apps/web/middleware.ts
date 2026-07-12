@@ -28,17 +28,26 @@ const protectedPrefixes = [
 ];
 
 export function middleware(request: NextRequest) {
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('Content-Security-Policy', contentSecurityPolicy);
+
   const internalAccessResponse = enforceInternalAccess(request);
 
   if (internalAccessResponse) {
-    return internalAccessResponse;
+    return withContentSecurityPolicy(internalAccessResponse, contentSecurityPolicy);
   }
 
   const { pathname, search } = request.nextUrl;
   const hasSessionCookie = Boolean(request.cookies.get(sessionCookieName)?.value);
 
   if (pathname === '/login' && hasSessionCookie) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return withContentSecurityPolicy(
+      NextResponse.redirect(new URL('/dashboard', request.url)),
+      contentSecurityPolicy,
+    );
   }
 
   const isProtectedRoute = protectedPrefixes.some(
@@ -46,18 +55,59 @@ export function middleware(request: NextRequest) {
   );
 
   if (!isProtectedRoute || hasSessionCookie) {
-    return NextResponse.next();
+    return withContentSecurityPolicy(
+      NextResponse.next({
+        request: {
+          headers: requestHeaders,
+        },
+      }),
+      contentSecurityPolicy,
+    );
   }
 
   const loginUrl = new URL('/login', request.url);
   loginUrl.searchParams.set('next', `${pathname}${search}`);
 
-  return NextResponse.redirect(loginUrl);
+  return withContentSecurityPolicy(NextResponse.redirect(loginUrl), contentSecurityPolicy);
 }
 
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)'],
 };
+
+function buildContentSecurityPolicy(nonce: string) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const connectSources = ["'self'"];
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+
+  if (apiUrl) {
+    connectSources.push(new URL(apiUrl).origin);
+  }
+
+  if (!isProduction) {
+    connectSources.push('http://localhost:4000', 'ws:', 'wss:');
+  }
+
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isProduction ? '' : " 'unsafe-eval'"}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    `connect-src ${[...new Set(connectSources)].join(' ')}`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "worker-src 'self' blob:",
+    ...(isProduction ? ['upgrade-insecure-requests'] : []),
+  ].join('; ');
+}
+
+function withContentSecurityPolicy(response: NextResponse, contentSecurityPolicy: string) {
+  response.headers.set('Content-Security-Policy', contentSecurityPolicy);
+  return response;
+}
 
 function enforceInternalAccess(request: NextRequest) {
   const rules = parseAllowedIpRules(process.env.INTERNAL_ALLOWED_IPS ?? '');
