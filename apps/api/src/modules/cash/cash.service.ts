@@ -67,7 +67,7 @@ export class CashService {
   }
 
   async openSession(tenantId: string, user: AuthenticatedUser, dto: OpenCashSessionDto) {
-    this.requirePermission(tenantId, user, 'canOpenCashSession');
+    this.requireOpenCashSessionPermission(tenantId, user);
 
     if (dto.openingAmount <= 0) {
       throw new BadRequestException('Opening amount must be greater than zero.');
@@ -326,6 +326,15 @@ export class CashService {
       (!membership[permission] && !([Role.ADMIN, Role.SUPER_ADMIN] as Role[]).includes(membership.role))
     ) {
       throw new ForbiddenException('Employee does not have permission for this cash operation.');
+    }
+  }
+
+  private requireOpenCashSessionPermission(tenantId: string, user: AuthenticatedUser) {
+    const membership = user.memberships.find((candidate) => candidate.tenantId === tenantId);
+    const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
+
+    if (!membership || !membership.canOpenCashSession || adminRoles.includes(membership.role)) {
+      throw new ForbiddenException('Admins cannot open cash sessions.');
     }
   }
 

@@ -7,7 +7,7 @@ import {
   ProductUnit,
   TaxCategory,
 } from '@qorvex/database';
-import * as XLSX from 'xlsx';
+import { readSheet, type CellValue } from 'read-excel-file/node';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 
@@ -72,7 +72,7 @@ export class ImportsService {
       throw new BadRequestException('Import file is required.');
     }
 
-    const rows = readWorkbookRows(file);
+    const rows = await readWorkbookRows(file);
     const preparedRows: PreparedProductImportRow[] = [];
     const rowErrors: ImportRowErrorInput[] = [];
 
@@ -232,21 +232,35 @@ export class ImportsService {
   }
 }
 
-function readWorkbookRows(file: UploadedImportFile) {
+async function readWorkbookRows(file: UploadedImportFile) {
   if (file.size > 10 * 1024 * 1024) {
     throw new BadRequestException('Import file cannot be larger than 10 MB.');
   }
 
-  const workbook = XLSX.read(file.buffer, { type: 'buffer' });
-  const firstSheetName = workbook.SheetNames[0];
+  const rows = await readSheet(file.buffer);
+  const [headerRow, ...dataRows] = rows;
 
-  if (!firstSheetName) {
+  if (!headerRow?.length) {
     throw new BadRequestException('Import file does not contain sheets.');
   }
 
-  return XLSX.utils.sheet_to_json<RawImportRow>(workbook.Sheets[firstSheetName], {
-    defval: '',
-  });
+  const headers = headerRow.map((header: CellValue | null) => String(header ?? '').trim());
+
+  if (!headers.some(Boolean)) {
+    throw new BadRequestException('Import file does not contain headers.');
+  }
+
+  return dataRows
+    .filter((row) => row.some((value: CellValue | null) => !isBlank(value)))
+    .map((row) =>
+      headers.reduce<RawImportRow>((record, header, index) => {
+        if (header) {
+          record[header] = row[index] ?? '';
+        }
+
+        return record;
+      }, {}),
+    );
 }
 
 function normalizeRow(row: RawImportRow) {

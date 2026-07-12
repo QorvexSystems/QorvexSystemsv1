@@ -10,22 +10,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { closeCashSession, getCashRegisters, getCashSessions, openCashSession } from '@/lib/api';
+import { isAdminSession } from '@/lib/authorization';
 import {
   getStatusVariant,
   translateCashMovementType,
   translatePaymentMethod,
   translateStatus,
 } from '@/lib/display-labels';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import {
   clearCurrencyInput,
   formatCurrencyInput,
-  formatCurrencyInputFromNumber,
   parseCurrencyInput,
   sanitizeCurrencyInput,
 } from './pos/currency-input';
 import { SessionRequired, useCurrentSession } from './session-required';
+import { WarningConfirmModal } from './warning-confirm-modal';
 
 export function CashSessionsView() {
   const session = useCurrentSession();
@@ -36,6 +37,7 @@ export function CashSessionsView() {
   const [closingAmount, setClosingAmount] = useState(clearCurrencyInput());
   const [message, setMessage] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [zeroClosingWarningOpen, setZeroClosingWarningOpen] = useState(false);
 
   const sessionsQuery = useQuery({
     queryKey: ['cash-sessions', session?.tenantId],
@@ -56,6 +58,8 @@ export function CashSessionsView() {
   const selectedRegisterOpenSession = openSessions.find(
     (cashSession) => cashSession.cashRegister.id === selectedRegisterId,
   );
+  const canOpenCashSession =
+    Boolean(session?.permissions.canOpenCashSession) && !isAdminSession(session);
 
   useEffect(() => {
     const firstRegister = registersQuery.data?.find(
@@ -151,6 +155,12 @@ export function CashSessionsView() {
 
   function submitClose(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (parseCurrencyInput(closingAmount) === 0) {
+      setZeroClosingWarningOpen(true);
+      return;
+    }
+
     closeMutation.mutate();
   }
 
@@ -161,81 +171,83 @@ export function CashSessionsView() {
         description="Apertura, control y cierre de caja de Ferreteria RIVNU."
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Abrir caja</CardTitle>
-          <CardDescription>
-            Declara el monto inicial y selecciona una caja fisica disponible. Puedes abrir varias
-            cajas a la vez si son cajas distintas.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-4 md:grid-cols-[1fr_1fr_auto]" onSubmit={submitOpen}>
-            <div className="space-y-2">
-              <Label htmlFor="cashRegister">Caja</Label>
-              <select
-                id="cashRegister"
-                value={selectedRegisterId}
-                onChange={(event) => setSelectedRegisterId(event.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
-                required
-              >
-                {(registersQuery.data ?? []).map((register) => {
-                  const openSession = openSessions.find(
-                    (cashSession) => cashSession.cashRegister.id === register.id,
-                  );
+      {canOpenCashSession ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Abrir caja</CardTitle>
+            <CardDescription>
+              Declara el monto inicial y selecciona una caja fisica disponible. Puedes abrir varias
+              cajas a la vez si son cajas distintas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="grid gap-4 md:grid-cols-[1fr_1fr_auto]" onSubmit={submitOpen}>
+              <div className="space-y-2">
+                <Label htmlFor="cashRegister">Caja</Label>
+                <select
+                  id="cashRegister"
+                  value={selectedRegisterId}
+                  onChange={(event) => setSelectedRegisterId(event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+                  required
+                >
+                  {(registersQuery.data ?? []).map((register) => {
+                    const openSession = openSessions.find(
+                      (cashSession) => cashSession.cashRegister.id === register.id,
+                    );
 
-                  return (
-                    <option key={register.id} value={register.id}>
-                      {register.name}
-                      {openSession
-                        ? ` - abierta por ${openSession.openedBy?.name ?? 'otro empleado'}`
-                        : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="openingAmount">
-                Monto inicial <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="openingAmount"
-                type="text"
-                inputMode="decimal"
-                value={openingAmount}
-                onChange={(event) => setOpeningAmount(sanitizeCurrencyInput(event.target.value))}
-                onBlur={(event) => setOpeningAmount(formatCurrencyInput(event.target.value))}
-                onFocus={(event) => event.currentTarget.select()}
-                required
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                type="submit"
-                disabled={
-                  !selectedRegisterId ||
-                  openMutation.isPending ||
-                  Boolean(selectedRegisterOpenSession) ||
-                  parseCurrencyInput(openingAmount) <= 0
-                }
-              >
-                <DoorOpen className="h-4 w-4" />
-                Abrir caja
-              </Button>
-            </div>
-          </form>
-          {selectedRegisterOpenSession ? (
-            <p className="mt-3 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
-              {selectedRegisterOpenSession.cashRegister.name} ya esta abierta por{' '}
-              {selectedRegisterOpenSession.openedBy?.name ?? 'otro empleado'}. Selecciona otra caja
-              fisica.
-            </p>
-          ) : null}
-          {message ? <p className="mt-3 text-sm text-muted-foreground">{message}</p> : null}
-        </CardContent>
-      </Card>
+                    return (
+                      <option key={register.id} value={register.id}>
+                        {register.name}
+                        {openSession
+                          ? ` - abierta por ${openSession.openedBy?.name ?? 'otro empleado'}`
+                          : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="openingAmount">
+                  Monto inicial <span className="text-danger">*</span>
+                </Label>
+                <Input
+                  id="openingAmount"
+                  type="text"
+                  inputMode="decimal"
+                  value={openingAmount}
+                  onChange={(event) => setOpeningAmount(sanitizeCurrencyInput(event.target.value))}
+                  onBlur={(event) => setOpeningAmount(formatCurrencyInput(event.target.value))}
+                  onFocus={(event) => event.currentTarget.select()}
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="submit"
+                  disabled={
+                    !selectedRegisterId ||
+                    openMutation.isPending ||
+                    Boolean(selectedRegisterOpenSession) ||
+                    parseCurrencyInput(openingAmount) <= 0
+                  }
+                >
+                  <DoorOpen className="h-4 w-4" />
+                  Abrir caja
+                </Button>
+              </div>
+            </form>
+            {selectedRegisterOpenSession ? (
+              <p className="mt-3 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
+                {selectedRegisterOpenSession.cashRegister.name} ya esta abierta por{' '}
+                {selectedRegisterOpenSession.openedBy?.name ?? 'otro empleado'}. Selecciona otra
+                caja fisica.
+              </p>
+            ) : null}
+            {message ? <p className="mt-3 text-sm text-muted-foreground">{message}</p> : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -266,7 +278,7 @@ export function CashSessionsView() {
                 </select>
                 {selectedOpenSession ? (
                   <p className="text-xs text-muted-foreground">
-                    Abierta el {formatDate(selectedOpenSession.openedAt)} con{' '}
+                    Abierta el {formatDateTime(selectedOpenSession.openedAt)} con{' '}
                     {formatCurrency(Number(selectedOpenSession.openingAmount))}.
                   </p>
                 ) : null}
@@ -324,6 +336,13 @@ export function CashSessionsView() {
               <tbody>
                 {(sessionsQuery.data ?? []).map((cashSession) => {
                   const expanded = expandedSessionId === cashSession.id;
+                  const expectedAmount = Number(
+                    cashSession.expectedAmount ?? cashSession.openingAmount,
+                  );
+                  const closingAmount =
+                    cashSession.closingAmount !== null ? Number(cashSession.closingAmount) : null;
+                  const difference =
+                    cashSession.difference !== null ? Number(cashSession.difference) : null;
 
                   return (
                     <Fragment key={cashSession.id}>
@@ -339,24 +358,24 @@ export function CashSessionsView() {
                             {translateStatus(cashSession.status)}
                           </Badge>
                         </td>
-                        <td className="py-3 pr-4">{formatDate(cashSession.openedAt)}</td>
+                        <td className="py-3 pr-4">{formatDateTime(cashSession.openedAt)}</td>
                         <td className="py-3 pr-4">
-                          {cashSession.closedAt ? formatDate(cashSession.closedAt) : '-'}
+                          {cashSession.closedAt ? formatDateTime(cashSession.closedAt) : '-'}
                         </td>
-                        <td className="py-3 pr-4 text-right">
-                          {formatCurrency(
-                            Number(cashSession.expectedAmount ?? cashSession.openingAmount),
-                          )}
+                        <td
+                          className={`py-3 pr-4 text-right ${getNegativeAmountClass(expectedAmount)}`}
+                        >
+                          {formatCurrency(expectedAmount)}
                         </td>
-                        <td className="py-3 pr-4 text-right">
-                          {cashSession.closingAmount
-                            ? formatCurrency(Number(cashSession.closingAmount))
-                            : '-'}
+                        <td
+                          className={`py-3 pr-4 text-right ${getNegativeAmountClass(closingAmount)}`}
+                        >
+                          {closingAmount !== null ? formatCurrency(closingAmount) : '-'}
                         </td>
-                        <td className="py-3 pr-4 text-right">
-                          {cashSession.difference
-                            ? formatCurrency(Number(cashSession.difference))
-                            : '-'}
+                        <td
+                          className={`py-3 pr-4 text-right ${getNegativeAmountClass(difference)}`}
+                        >
+                          {difference !== null ? formatCurrency(difference) : '-'}
                         </td>
                         <td className="py-3 text-right">
                           <Button
@@ -392,6 +411,19 @@ export function CashSessionsView() {
           </div>
         </CardContent>
       </Card>
+
+      <WarningConfirmModal
+        open={zeroClosingWarningOpen}
+        title="Cerrar caja con RD$0.00"
+        description="El monto contado esta en cero. Confirma solo si realmente la caja fisica no tiene efectivo al cierre."
+        confirmLabel="Cerrar en RD$0.00"
+        isPending={closeMutation.isPending}
+        onClose={() => setZeroClosingWarningOpen(false)}
+        onConfirm={() => {
+          setZeroClosingWarningOpen(false);
+          closeMutation.mutate();
+        }}
+      />
     </div>
   );
 }
@@ -405,6 +437,9 @@ function CashSessionReport({
   const salesOrders = cashSession.claimedSalesOrders ?? [];
   const invoices = cashSession.invoices ?? [];
   const orderInvoices = invoices.filter((invoice) => invoice.salesOrder);
+  const quotationInvoices = invoices.filter((invoice) =>
+    invoice.salesOrder?.orderNumber.startsWith('COT-'),
+  );
   const directInvoices = invoices.filter((invoice) => !invoice.salesOrder);
   const paymentTotals = getInvoicePaymentTotals(invoices);
   const summary = getCashSessionSummary(cashSession);
@@ -428,7 +463,12 @@ function CashSessionReport({
           tone="order"
         />
         <ReportMetric
-          label="Ventas directas admin"
+          label="Cotizaciones cobradas"
+          value={`${quotationInvoices.length} / ${formatCurrency(sumInvoiceTotals(quotationInvoices))}`}
+          tone="quote"
+        />
+        <ReportMetric
+          label="Ventas directas"
           value={`${directInvoices.length} / ${formatCurrency(sumInvoiceTotals(directInvoices))}`}
           tone="admin"
         />
@@ -588,7 +628,7 @@ function CashSessionReport({
             {movements.length ? (
               movements.map((movement) => (
                 <tr key={movement.id} className="border-b border-border last:border-b-0">
-                  <td className="px-3 py-2">{formatDate(movement.createdAt)}</td>
+                  <td className="px-3 py-2">{formatDateTime(movement.createdAt)}</td>
                   <td className="px-3 py-2">
                     <span className={getCashMovementPillClass(movement.type)}>
                       {translateCashMovementType(movement.type)}
@@ -631,13 +671,20 @@ function ReportMetric({
   tone?: ReportMetricTone;
 }) {
   const classes = reportMetricClasses[tone] ?? reportMetricClasses.neutral;
+  const hasNegativeAmount = value.includes('-RD$');
 
   return (
     <div className={`rounded-md border p-3 ${classes.card}`}>
       <p className={`text-xs ${classes.label}`}>{label}</p>
-      <p className={`mt-1 font-semibold ${classes.value}`}>{value}</p>
+      <p className={`mt-1 font-semibold ${hasNegativeAmount ? 'text-red-600' : classes.value}`}>
+        {value}
+      </p>
     </div>
   );
+}
+
+function getNegativeAmountClass(amount: number | null) {
+  return amount !== null && amount < 0 ? 'font-medium text-red-600' : '';
 }
 
 type ReportMetricTone =
@@ -645,6 +692,7 @@ type ReportMetricTone =
   | 'opening'
   | 'sale'
   | 'order'
+  | 'quote'
   | 'admin'
   | 'cash'
   | 'card'
@@ -680,6 +728,11 @@ const reportMetricClasses: Record<
     card: 'border-[#f36c10]/25 bg-[#f36c10]/10',
     label: 'text-[#9a3f05]',
     value: 'text-[#7a3103]',
+  },
+  quote: {
+    card: 'border-purple-200 bg-purple-50',
+    label: 'text-purple-700',
+    value: 'text-purple-950',
   },
   admin: {
     card: 'border-violet-200 bg-violet-50',

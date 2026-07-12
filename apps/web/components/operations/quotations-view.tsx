@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { acceptSalesOrder, cancelSalesOrder, getSalesOrders, type SalesOrder } from '@/lib/api';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { CancelReasonModal } from './cancel-reason-modal';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -243,7 +243,7 @@ function QuotationCard({
               {getOrderSearchLabel(order)}
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Creada el {formatDate(order.createdAt)}
+              Creada el {formatDateTime(order.createdAt)}
             </p>
           </div>
           <Badge variant={getStatusVariant(order.status)}>{translateStatus(order.status)}</Badge>
@@ -262,7 +262,7 @@ function QuotationCard({
           <p className="text-xs text-zinc-500">Por: {order.createdBy.name}</p>
           {order.sentToCashierAt ? (
             <p className="text-xs text-zinc-500">
-              Enviada a caja: {formatDate(order.sentToCashierAt)}
+              Enviada a caja: {formatDateTime(order.sentToCashierAt)}
             </p>
           ) : null}
           {order.cancelReason ? (

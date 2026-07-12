@@ -473,6 +473,8 @@ export class EmployeesService {
     if (role === Role.ADMIN) {
       return {
         ...data,
+        canUsePos: false,
+        canOpenCashSession: false,
         canTakeOrders: true,
       };
     }

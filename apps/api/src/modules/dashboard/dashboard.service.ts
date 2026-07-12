@@ -70,6 +70,8 @@ export class DashboardService {
       productsForStock,
       invoicesForSeries,
       returnsForSeries,
+      quotationSalesInCashier,
+      completedQuotationSalesToday,
     ] = await Promise.all([
       this.prisma.invoice.findMany({
         where: {
@@ -325,6 +327,30 @@ export class DashboardService {
           refundAmount: true,
         },
       }),
+      this.prisma.salesOrder.findMany({
+        where: {
+          tenantId,
+          destination: SalesOrderDestination.CASH_SALE,
+          orderNumber: { startsWith: 'COT-' },
+          status: { in: [SalesOrderStatus.SENT_TO_CASHIER, SalesOrderStatus.IN_CASHIER] },
+        },
+        select: {
+          total: true,
+        },
+      }),
+      this.prisma.salesOrder.findMany({
+        where: {
+          tenantId,
+          orderNumber: { startsWith: 'COT-' },
+          status: SalesOrderStatus.COMPLETED,
+          completedAt: {
+            gte: todayStart,
+          },
+        },
+        select: {
+          total: true,
+        },
+      }),
     ]);
 
     const lowStockProductsList = productsForStock.filter(
@@ -338,6 +364,8 @@ export class DashboardService {
     const netSalesMonth = grossSalesMonth - refundsMonth;
     const netSalesToday = grossSalesToday - refundsToday;
     const pendingReturnAmount = this.decimalToNumber(pendingReturnsAggregate._sum.refundAmount);
+    const quotationSalesInCashierAmount = this.sumOrderAmount(quotationSalesInCashier);
+    const completedQuotationSalesTodayAmount = this.sumOrderAmount(completedQuotationSalesToday);
 
     return {
       totalBilledMonth: netSalesMonth,
@@ -361,6 +389,10 @@ export class DashboardService {
       claimedOrders,
       ordersInCashier: pendingOrders + claimedOrders,
       pendingQuotations,
+      quotationSalesInCashier: quotationSalesInCashier.length,
+      quotationSalesInCashierAmount,
+      completedQuotationSalesToday: completedQuotationSalesToday.length,
+      completedQuotationSalesTodayAmount,
       completedOrdersToday,
       pendingReturns,
       completedReturns,
@@ -437,6 +469,53 @@ export class DashboardService {
     };
   }
 
+  async getProductSales(tenantId: string) {
+    const [products, invoiceItems] = await Promise.all([
+      this.prisma.product.findMany({
+        where: {
+          tenantId,
+          status: ProductStatus.ACTIVE,
+        },
+        include: {
+          category: { select: { id: true, name: true } },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.invoiceItem.findMany({
+        where: {
+          productId: { not: null },
+          invoice: {
+            tenantId,
+            status: { in: revenueStatuses },
+          },
+        },
+        select: {
+          invoiceId: true,
+          productId: true,
+          quantity: true,
+          total: true,
+          invoice: {
+            select: {
+              issuedAt: true,
+              createdAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const ranking = this.buildProductSalesRanking(products, invoiceItems);
+
+    return {
+      generatedAt: new Date(),
+      productCount: products.length,
+      productsWithSales: ranking.mostSold.filter((product) => product.quantitySold > 0).length,
+      productsWithoutSales: ranking.leastSold.filter((product) => product.quantitySold === 0).length,
+      mostSold: ranking.mostSold,
+      leastSold: ranking.leastSold,
+    };
+  }
+
   private buildSalesSeries(
     invoices: Array<{
       issuedAt: Date | null;
@@ -486,6 +565,91 @@ export class DashboardService {
     }).format(date);
   }
 
+  private buildProductSalesRanking(
+    products: Array<{
+      id: string;
+      name: string;
+      sku: string | null;
+      brand: string | null;
+      unit: string;
+      price: { toNumber(): number };
+      category: { id: string; name: string } | null;
+    }>,
+    invoiceItems: Array<{
+      invoiceId: string;
+      productId: string | null;
+      quantity: { toNumber(): number };
+      total: { toNumber(): number };
+      invoice: {
+        issuedAt: Date | null;
+        createdAt: Date;
+      };
+    }>,
+  ) {
+    const aggregates = new Map<
+      string,
+      {
+        quantitySold: number;
+        grossAmount: number;
+        invoiceIds: Set<string>;
+        lastSoldAt: Date | null;
+      }
+    >();
+
+    for (const item of invoiceItems) {
+      if (!item.productId) {
+        continue;
+      }
+
+      const aggregate = aggregates.get(item.productId) ?? {
+        quantitySold: 0,
+        grossAmount: 0,
+        invoiceIds: new Set<string>(),
+        lastSoldAt: null,
+      };
+      const soldAt = item.invoice.issuedAt ?? item.invoice.createdAt;
+
+      aggregate.quantitySold += this.decimalToNumber(item.quantity);
+      aggregate.grossAmount += this.decimalToNumber(item.total);
+      aggregate.invoiceIds.add(item.invoiceId);
+
+      if (!aggregate.lastSoldAt || soldAt > aggregate.lastSoldAt) {
+        aggregate.lastSoldAt = soldAt;
+      }
+
+      aggregates.set(item.productId, aggregate);
+    }
+
+    const ranking = products.map((product) => {
+      const aggregate = aggregates.get(product.id);
+
+      return {
+        productId: product.id,
+        name: product.name,
+        sku: product.sku,
+        brand: product.brand,
+        unit: product.unit,
+        categoryName: product.category?.name ?? 'Sin categoria',
+        currentPrice: this.decimalToNumber(product.price),
+        quantitySold: aggregate?.quantitySold ?? 0,
+        grossAmount: aggregate?.grossAmount ?? 0,
+        invoiceCount: aggregate?.invoiceIds.size ?? 0,
+        lastSoldAt: aggregate?.lastSoldAt ?? null,
+      };
+    });
+
+    return {
+      mostSold: [...ranking].sort((first, second) => {
+        const quantityDiff = second.quantitySold - first.quantitySold;
+        return quantityDiff || second.grossAmount - first.grossAmount || first.name.localeCompare(second.name);
+      }),
+      leastSold: [...ranking].sort((first, second) => {
+        const quantityDiff = first.quantitySold - second.quantitySold;
+        return quantityDiff || first.grossAmount - second.grossAmount || first.name.localeCompare(second.name);
+      }),
+    };
+  }
+
   private decimalToNumber(value: { toNumber(): number } | null | undefined) {
     return value ? value.toNumber() : 0;
   }
@@ -494,6 +658,10 @@ export class DashboardService {
     invoices: Array<{ paidAmount: { toNumber(): number }; total: { toNumber(): number } }>,
   ) {
     return invoices.reduce((sum, invoice) => sum + this.getInvoicePaidAmount(invoice), 0);
+  }
+
+  private sumOrderAmount(orders: Array<{ total: { toNumber(): number } }>) {
+    return orders.reduce((sum, order) => sum + this.decimalToNumber(order.total), 0);
   }
 
   private getInvoicePaidAmount(invoice: {

@@ -13,6 +13,8 @@ import {
   ReceiptText,
   RotateCcw,
   ShoppingCart,
+  TrendingDown,
+  TrendingUp,
   UserCheck,
   Users,
 } from 'lucide-react';
@@ -38,7 +40,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatQuantity } from '@/components/operations/pos/pos-utils';
-import { getDashboardSummary } from '@/lib/api';
+import { getDashboardSummary, getProductSalesRanking, type ProductSalesMetric } from '@/lib/api';
 import { getSession, type AuthSession } from '@/lib/auth-session';
 import { canAccessPath } from '@/lib/authorization';
 import {
@@ -46,6 +48,7 @@ import {
   translateCashMovementType,
   translateEmployeeAction,
   translateEntity,
+  translateProductUnit,
   translateStatus,
 } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -55,6 +58,11 @@ export function DashboardView() {
   const summaryQuery = useQuery({
     queryKey: ['dashboard-summary', session?.tenantId],
     queryFn: () => getDashboardSummary(session?.tenantId ?? '', session?.accessToken ?? ''),
+    enabled: Boolean(session?.tenantId && session.accessToken),
+  });
+  const productSalesQuery = useQuery({
+    queryKey: ['product-sales-ranking', session?.tenantId, 'dashboard-preview'],
+    queryFn: () => getProductSalesRanking(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session?.tenantId && session.accessToken),
   });
 
@@ -92,6 +100,8 @@ export function DashboardView() {
   }
 
   const summary = summaryQuery.data;
+  const topSellingProducts = productSalesQuery.data?.mostSold.slice(0, 5) ?? [];
+  const leastSellingProducts = productSalesQuery.data?.leastSold.slice(0, 5) ?? [];
   const quickActions = [
     {
       label: 'Tomar orden',
@@ -171,6 +181,22 @@ export function DashboardView() {
       icon: ClipboardList,
       tone: 'text-primary',
       href: '/quotations',
+    },
+    {
+      label: 'Cotizaciones en caja',
+      value: summary.quotationSalesInCashier.toString(),
+      hint: `${formatCurrency(summary.quotationSalesInCashierAmount)} listas para cobrar`,
+      icon: ReceiptText,
+      tone: 'text-warning',
+      href: '/pos',
+    },
+    {
+      label: 'Cotiz. cobradas hoy',
+      value: summary.completedQuotationSalesToday.toString(),
+      hint: `${formatCurrency(summary.completedQuotationSalesTodayAmount)} facturado desde cotizaciones`,
+      icon: CheckCircle2,
+      tone: 'text-success',
+      href: '/invoices',
     },
     {
       label: 'Cajas abiertas',
@@ -328,8 +354,61 @@ export function DashboardView() {
             <StatusRow label="Ordenes por cobrar" value={summary.pendingOrders} href="/pos" session={session} />
             <StatusRow label="Ordenes tomadas en caja" value={summary.claimedOrders} href="/pos" session={session} />
             <StatusRow label="Cotizaciones pendientes" value={summary.pendingQuotations} href="/quotations" session={session} />
+            <StatusRow label="Cotizaciones listas para cobrar" value={summary.quotationSalesInCashier} href="/pos" session={session} />
             <StatusRow label="Devoluciones por validar" value={summary.pendingReturns} href="/returns" session={session} />
             <StatusRow label="Facturas pendientes" value={summary.pendingInvoices} href="/invoices" session={session} />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle>Productos mas vendidos</CardTitle>
+                <CardDescription>Ranking historico por cantidad facturada.</CardDescription>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/dashboard/productos-vendidos">Ver mas</Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ProductSalesList
+              products={topSellingProducts}
+              icon={TrendingUp}
+              emptyMessage={
+                productSalesQuery.isLoading
+                  ? 'Calculando productos mas vendidos...'
+                  : 'Todavia no hay ventas registradas para calcular este ranking.'
+              }
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle>Productos menos vendidos</CardTitle>
+                <CardDescription>Incluye productos activos sin ventas registradas.</CardDescription>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/dashboard/productos-vendidos">Ver mas</Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ProductSalesList
+              products={leastSellingProducts}
+              icon={TrendingDown}
+              emptyMessage={
+                productSalesQuery.isLoading
+                  ? 'Calculando productos menos vendidos...'
+                  : 'No hay productos activos para revisar.'
+              }
+            />
           </CardContent>
         </Card>
       </section>
@@ -542,6 +621,49 @@ export function DashboardView() {
           </Table>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ProductSalesList({
+  products,
+  icon: Icon,
+  emptyMessage,
+}: {
+  products: ProductSalesMetric[];
+  icon: typeof TrendingUp;
+  emptyMessage: string;
+}) {
+  if (!products.length) {
+    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {products.map((product, index) => (
+        <Link
+          key={product.productId}
+          href={`/products?q=${encodeURIComponent(product.sku ?? product.name)}`}
+          className="flex items-center gap-3 rounded-md border border-border p-3 transition hover:border-zinc-300 hover:bg-zinc-50"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-sm font-semibold">
+            {index + 1}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <Icon className="h-4 w-4 shrink-0 text-[#f36c10]" />
+              <p className="truncate text-sm font-semibold">{product.name}</p>
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {product.sku ?? 'Sin SKU'} - {product.categoryName} - {translateProductUnit(product.unit)}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-sm font-semibold">{formatQuantity(product.quantitySold)}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(product.grossAmount)}</p>
+          </div>
+        </Link>
+      ))}
     </div>
   );
 }

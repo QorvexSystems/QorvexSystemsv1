@@ -35,7 +35,7 @@ import {
   type Product,
   type SalesOrder,
 } from '@/lib/api';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { isAdminSession } from '@/lib/authorization';
 import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
@@ -63,6 +63,7 @@ import {
 import { playScanFeedback } from './pos/scan-feedback';
 import type { CartItem } from './pos/types';
 import { SessionRequired, useCurrentSession } from './session-required';
+import { WarningConfirmModal } from './warning-confirm-modal';
 
 type BarcodeDetectorResult = { rawValue: string };
 type BarcodeDetectorInstance = {
@@ -99,6 +100,7 @@ export function PosView() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loadedOrder, setLoadedOrder] = useState<SalesOrder | null>(null);
+  const [zeroClosingWarningOpen, setZeroClosingWarningOpen] = useState(false);
 
   const customersQuery = useQuery({
     queryKey: ['pos-customers', session?.tenantId],
@@ -139,8 +141,7 @@ export function PosView() {
     session?.permissions.canUsePos ??
     ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
   const canOpenCashSession =
-    session?.permissions.canOpenCashSession ??
-    ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
+    Boolean(session?.permissions.canOpenCashSession) && !isAdminSession(session);
   const canCloseCashSession =
     session?.permissions.canCloseCashSession ??
     ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
@@ -508,6 +509,15 @@ export function PosView() {
     setCart([]);
   }
 
+  function requestCloseCashSession() {
+    if (parseCurrencyInput(closingAmount) === 0) {
+      setZeroClosingWarningOpen(true);
+      return;
+    }
+
+    closeSessionMutation.mutate();
+  }
+
   function unlinkLoadedOrderIfNeeded() {
     if (loadedOrder) {
       releaseOrderMutation.mutate(loadedOrder.id);
@@ -760,12 +770,25 @@ export function PosView() {
               onClosingAmountChange={setClosingAmount}
               onClose={(event) => {
                 event.preventDefault();
-                closeSessionMutation.mutate();
+                requestCloseCashSession();
               }}
             />
           </div>
         </section>
       )}
+
+      <WarningConfirmModal
+        open={zeroClosingWarningOpen}
+        title="Cerrar caja con RD$0.00"
+        description="El monto contado esta en cero. Confirma solo si realmente la caja fisica no tiene efectivo al cierre."
+        confirmLabel="Cerrar en RD$0.00"
+        isPending={closeSessionMutation.isPending}
+        onClose={() => setZeroClosingWarningOpen(false)}
+        onConfirm={() => {
+          setZeroClosingWarningOpen(false);
+          closeSessionMutation.mutate();
+        }}
+      />
     </div>
   );
 }
@@ -897,7 +920,7 @@ function SalesOrdersQueuePanel({
                       </Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                  {getOrderSearchLabel(order)} - {formatDate(order.sentToCashierAt ?? order.createdAt)}
+                  {getOrderSearchLabel(order)} - {formatDateTime(order.sentToCashierAt ?? order.createdAt)}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Cliente: {getOrderClientLabel(order)}
@@ -1003,7 +1026,7 @@ function CashStatusHeader({
         <CalendarClock className="h-5 w-5 text-zinc-500" />
         <div>
           <p className="text-xs text-muted-foreground">Apertura</p>
-          <p className="font-semibold">{openedAt ? formatDate(openedAt) : 'Pendiente'}</p>
+          <p className="font-semibold">{openedAt ? formatDateTime(openedAt) : 'Pendiente'}</p>
         </div>
       </div>
       <div>
